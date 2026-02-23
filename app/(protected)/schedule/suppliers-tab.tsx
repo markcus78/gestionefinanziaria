@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { updateSupplier } from './actions'
 import type { SupplierRegistry, SupplierCategory } from '@/lib/types/database'
 import type { SupplierAgg } from './page'
@@ -39,7 +41,11 @@ function AmtCell({ cents, warn }: { cents: number; warn?: boolean }) {
   return <span className={warn ? 'text-red-400 font-medium' : 'text-zinc-300'}>{txt}</span>
 }
 
-function SupplierRow({ supplier, supplierAgg }: { supplier: SupplierRegistry; supplierAgg: SupplierAgg }) {
+function SupplierRow({ supplier, supplierAgg, scheduleHref }: {
+  supplier: SupplierRegistry
+  supplierAgg: SupplierAgg
+  scheduleHref: string
+}) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -53,8 +59,14 @@ function SupplierRow({ supplier, supplierAgg }: { supplier: SupplierRegistry; su
 
   return (
     <tr className="border-b border-zinc-800/50 last:border-0 hover:bg-zinc-800/20">
-      <td className="px-3 py-2.5 text-zinc-200 max-w-48 text-sm">
-        <span className="block truncate">{supplier.supplier_name}</span>
+      <td className="px-3 py-2.5 max-w-48 text-sm">
+        <Link
+          href={scheduleHref}
+          className="block truncate text-zinc-200 hover:text-indigo-400 transition-colors"
+          title="Vedi scadenze"
+        >
+          {supplier.supplier_name}
+        </Link>
         {error && <span className="text-xs text-red-400">{error}</span>}
       </td>
       <td className="px-3 py-2.5 text-zinc-500 text-xs font-mono">
@@ -108,6 +120,17 @@ function SupplierRow({ supplier, supplierAgg }: { supplier: SupplierRegistry; su
 }
 
 export default function SuppliersTab({ suppliers, agg }: Props) {
+  const sp = useSearchParams()
+  const company = sp.get('company') ?? ''
+
+  function makeHref(name: string) {
+    const params = new URLSearchParams()
+    params.set('tab', 'schedule')
+    params.set('q', name)
+    if (company) params.set('company', company)
+    return `/schedule?${params.toString()}`
+  }
+
   if (!suppliers.length) {
     return (
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-10 text-center">
@@ -145,6 +168,7 @@ export default function SuppliersTab({ suppliers, agg }: Props) {
                 key={s.id}
                 supplier={s}
                 supplierAgg={agg[s.id] ?? { overdueCents: 0, due7dCents: 0, due30dCents: 0, due90dCents: 0 }}
+                scheduleHref={makeHref(s.supplier_name)}
               />
             ))}
           </tbody>
