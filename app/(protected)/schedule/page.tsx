@@ -195,7 +195,13 @@ export default async function SchedulePage({
                       )}
                     </td>
                     <td className="px-3 py-2 max-w-44">
-                      <span className="text-zinc-200 block truncate">{item.supplier_name ?? '—'}</span>
+                      {item.supplier_name ? (
+                        <span className="text-zinc-200 block truncate">{item.supplier_name}</span>
+                      ) : item.account_description ? (
+                        <span className="text-zinc-400 block truncate italic">{item.account_description}</span>
+                      ) : (
+                        <span className="text-zinc-600">—</span>
+                      )}
                       {item.is_intercompany && (
                         <span className="text-amber-400 text-xs">IC</span>
                       )}
@@ -204,7 +210,13 @@ export default async function SchedulePage({
                       {item.document_type && (
                         <span className="px-1 py-0.5 bg-zinc-800 rounded text-zinc-300 mr-1">{item.document_type}</span>
                       )}
-                      <span className="font-mono">{item.document_number ?? '—'}</span>
+                      {item.document_number ? (
+                        <span className="font-mono">{item.document_number}</span>
+                      ) : item.account_code && !item.supplier_name ? (
+                        <span className="text-zinc-600 font-mono">{item.account_code}</span>
+                      ) : (
+                        <span className="text-zinc-600">—</span>
+                      )}
                     </td>
                     <td className={`px-3 py-2 text-right font-medium tabular-nums ${item.flow_type === 'out' ? 'text-red-400' : 'text-emerald-400'}`}>
                       {item.flow_type === 'out' ? '-' : '+'}{formatEur(Math.abs(item.amount_cents))}
