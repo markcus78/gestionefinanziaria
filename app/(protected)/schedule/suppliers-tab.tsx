@@ -3,9 +3,11 @@
 import { useState, useTransition } from 'react'
 import { updateSupplier } from './actions'
 import type { SupplierRegistry, SupplierCategory } from '@/lib/types/database'
+import type { SupplierAgg } from './page'
 
 type Props = {
   suppliers: SupplierRegistry[]
+  agg: Record<string, SupplierAgg>
 }
 
 const CATEGORIES: { value: SupplierCategory | ''; label: string }[] = [
@@ -24,7 +26,20 @@ const CATEGORIES: { value: SupplierCategory | ''; label: string }[] = [
   { value: 'altro', label: 'Altro' },
 ]
 
-function SupplierRow({ supplier }: { supplier: SupplierRegistry }) {
+function fmtAmt(cents: number) {
+  if (cents === 0) return null
+  return new Intl.NumberFormat('it-IT', {
+    style: 'currency', currency: 'EUR', maximumFractionDigits: 0,
+  }).format(cents / 100)
+}
+
+function AmtCell({ cents, warn }: { cents: number; warn?: boolean }) {
+  const txt = fmtAmt(cents)
+  if (!txt) return <span className="text-zinc-700">—</span>
+  return <span className={warn ? 'text-red-400 font-medium' : 'text-zinc-300'}>{txt}</span>
+}
+
+function SupplierRow({ supplier, supplierAgg }: { supplier: SupplierRegistry; supplierAgg: SupplierAgg }) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -38,9 +53,9 @@ function SupplierRow({ supplier }: { supplier: SupplierRegistry }) {
 
   return (
     <tr className="border-b border-zinc-800/50 last:border-0 hover:bg-zinc-800/20">
-      <td className="px-3 py-2.5 text-zinc-200 max-w-56 truncate text-sm">
-        {supplier.supplier_name}
-        {error && <span className="text-xs text-red-400 ml-2">{error}</span>}
+      <td className="px-3 py-2.5 text-zinc-200 max-w-48 text-sm">
+        <span className="block truncate">{supplier.supplier_name}</span>
+        {error && <span className="text-xs text-red-400">{error}</span>}
       </td>
       <td className="px-3 py-2.5 text-zinc-500 text-xs font-mono">
         {supplier.supplier_code ?? '—'}
@@ -75,11 +90,24 @@ function SupplierRow({ supplier }: { supplier: SupplierRegistry }) {
           className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-indigo-500 focus:ring-indigo-500 focus:ring-1 disabled:opacity-50 cursor-pointer"
         />
       </td>
+      {/* Aggregated amounts */}
+      <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+        <AmtCell cents={supplierAgg.overdueCents} warn />
+      </td>
+      <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+        <AmtCell cents={supplierAgg.due7dCents} />
+      </td>
+      <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+        <AmtCell cents={supplierAgg.due30dCents} />
+      </td>
+      <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+        <AmtCell cents={supplierAgg.due90dCents} />
+      </td>
     </tr>
   )
 }
 
-export default function SuppliersTab({ suppliers }: Props) {
+export default function SuppliersTab({ suppliers, agg }: Props) {
   if (!suppliers.length) {
     return (
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-10 text-center">
@@ -104,12 +132,20 @@ export default function SuppliersTab({ suppliers }: Props) {
               <th className="text-left px-3 py-2 text-zinc-400 font-medium">Codice</th>
               <th className="text-left px-3 py-2 text-zinc-400 font-medium">Categoria</th>
               <th className="text-center px-3 py-2 text-zinc-400 font-medium">Critico</th>
-              <th className="text-center px-3 py-2 text-zinc-400 font-medium">Accetta posticipo</th>
+              <th className="text-center px-3 py-2 text-zinc-400 font-medium">Posticipo</th>
+              <th className="text-right px-3 py-2 text-red-400 font-medium">Scaduto</th>
+              <th className="text-right px-3 py-2 text-zinc-400 font-medium">7 gg</th>
+              <th className="text-right px-3 py-2 text-zinc-400 font-medium">30 gg</th>
+              <th className="text-right px-3 py-2 text-zinc-400 font-medium">90 gg</th>
             </tr>
           </thead>
           <tbody>
             {suppliers.map(s => (
-              <SupplierRow key={s.id} supplier={s} />
+              <SupplierRow
+                key={s.id}
+                supplier={s}
+                supplierAgg={agg[s.id] ?? { overdueCents: 0, due7dCents: 0, due30dCents: 0, due90dCents: 0 }}
+              />
             ))}
           </tbody>
         </table>

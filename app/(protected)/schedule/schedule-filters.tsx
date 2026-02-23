@@ -1,8 +1,8 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { useCallback } from 'react'
-import Link from 'next/link'
+import { useCallback, useRef, useState } from 'react'
+import { Search, X } from 'lucide-react'
 import type { Company } from '@/lib/types/database'
 
 type Props = {
@@ -45,12 +45,15 @@ export default function ScheduleFilters({ companies }: Props) {
   const pathname = usePathname()
   const sp = useSearchParams()
 
-  const tab = sp.get('tab') ?? 'schedule'
+  const tab     = sp.get('tab')     ?? 'schedule'
   const company = sp.get('company') ?? ''
-  const status = sp.get('status') ?? ''
-  const flow = sp.get('flow') ?? ''
-  const from = sp.get('from') ?? ''
-  const to = sp.get('to') ?? ''
+  const status  = sp.get('status')  ?? ''
+  const flow    = sp.get('flow')    ?? ''
+  const from    = sp.get('from')    ?? ''
+  const to      = sp.get('to')      ?? ''
+
+  const [searchVal, setSearchVal] = useState(sp.get('q') ?? '')
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const push = useCallback((updates: Record<string, string>) => {
     const params = new URLSearchParams(sp.toString())
@@ -61,6 +64,18 @@ export default function ScheduleFilters({ companies }: Props) {
     params.delete('page')
     router.push(`${pathname}?${params.toString()}`)
   }, [sp, pathname, router])
+
+  function handleSearch(val: string) {
+    setSearchVal(val)
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => push({ q: val }), 400)
+  }
+
+  function clearSearch() {
+    setSearchVal('')
+    clearTimeout(debounceRef.current)
+    push({ q: '' })
+  }
 
   const activePeriod = PERIOD_PRESETS.find(p => p.from === from && p.to === to)?.label ?? null
 
@@ -98,6 +113,28 @@ export default function ScheduleFilters({ companies }: Props) {
           ))}
         </div>
       </div>
+
+      {/* Search (only for schedule tab) */}
+      {tab === 'schedule' && (
+        <div className="relative w-64">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+          <input
+            type="text"
+            value={searchVal}
+            onChange={e => handleSearch(e.target.value)}
+            placeholder="Cerca fornitore..."
+            className="w-full pl-8 pr-8 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          {searchVal && (
+            <button
+              onClick={clearSearch}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Row 2: status + flow + period (only for schedule tab) */}
       {tab === 'schedule' && (

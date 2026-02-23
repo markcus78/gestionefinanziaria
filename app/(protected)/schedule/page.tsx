@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react'
+import { FileSpreadsheet, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react'
 import ScheduleFilters from './schedule-filters'
 import RowActions from './row-actions'
 import SuppliersTab from './suppliers-tab'
@@ -9,8 +9,21 @@ import type { PaymentScheduleItem, PaymentStatus } from '@/lib/types/database'
 
 const PAGE_SIZE = 50
 
+export type SupplierAgg = {
+  overdueCents: number
+  due7dCents: number
+  due30dCents: number
+  due90dCents: number
+}
+
 function formatEur(cents: number) {
   return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100)
+}
+
+function isoAddDays(days: number) {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
 }
 
 function StatusBadge({ status }: { status: PaymentStatus }) {
@@ -23,9 +36,7 @@ function StatusBadge({ status }: { status: PaymentStatus }) {
     cancelled: { label: 'Annullato',   cls: 'bg-zinc-700 text-zinc-400' },
   }
   const { label, cls } = map[status] ?? map.pending
-  return (
-    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>
-  )
+  return <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>
 }
 
 function PriorityBadge({ score }: { score: number | null }) {
@@ -35,17 +46,15 @@ function PriorityBadge({ score }: { score: number | null }) {
     score >= 8  ? 'bg-orange-500/20 text-orange-400' :
     score >= 5  ? 'bg-amber-500/20 text-amber-400' :
                   'bg-zinc-700 text-zinc-400'
-  return (
-    <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${cls}`}>{score}</span>
-  )
+  return <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${cls}`}>{score}</span>
 }
 
 function dueDateClass(dueDate: string, status: PaymentStatus): string {
   if (status === 'paid' || status === 'cancelled') return 'text-zinc-500'
   const today = new Date().toISOString().split('T')[0]
   if (dueDate < today) return 'text-red-400 font-semibold'
-  const d7 = new Date(); d7.setDate(d7.getDate() + 7)
-  if (dueDate <= d7.toISOString().split('T')[0]) return 'text-amber-400'
+  const d7 = isoAddDays(7)
+  if (dueDate <= d7) return 'text-amber-400'
   return 'text-zinc-300'
 }
 
@@ -59,13 +68,15 @@ export default async function SchedulePage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const tab = sp.tab ?? 'schedule'
+  const tab       = sp.tab     ?? 'schedule'
   const companyId = sp.company ?? ''
-  const status = sp.status ?? ''
-  const flow = sp.flow ?? ''
-  const from = sp.from ?? ''
-  const to = sp.to ?? ''
-  const page = Math.max(1, parseInt(sp.page ?? '1', 10))
+  const status    = sp.status  ?? ''
+  const flow      = sp.flow    ?? ''
+  const from      = sp.from    ?? ''
+  const to        = sp.to      ?? ''
+  const search    = sp.q       ?? ''
+  const sort      = sp.sort    ?? 'asc'       // 'asc' | 'desc'
+  const page      = Math.max(1, parseInt(sp.page ?? '1', 10))
 
   // Fetch companies for filter
   const { data: companies } = await supabase
@@ -74,58 +85,91 @@ export default async function SchedulePage({
     .eq('is_active', true)
     .order('name')
 
-  // --- SUPPLIERS TAB ---
+  // ── SUPPLIERS TAB ────────────────────────────────────────────────────────
   if (tab === 'suppliers') {
-    let q = supabase
-      .from('supplier_registry')
-      .select('*')
-      .order('supplier_name')
-    if (companyId) q = q.eq('company_id', companyId)
-    const { data: suppliers } = await q
+    let suppQ = supabase.from('supplier_registry').select('*').order('supplier_name')
+    if (companyId) suppQ = suppQ.eq('company_id', companyId)
+    const { data: suppliers } = await suppQ
+
+    // Aggregate pending out flows per supplier
+    let aggQ = supabase
+      .from('payment_schedule')
+      .select('supplier_id, due_date, amount_cents')
+      .eq('flow_type', 'out')
+      .not('status', 'in', '("paid","cancelled")')
+    if (companyId) aggQ = aggQ.eq('company_id', companyId)
+    const { data: aggRows } = await aggQ
+
+    const today = new Date().toISOString().split('T')[0]
+    const d7    = isoAddDays(7)
+    const d30   = isoAddDays(30)
+    const d90   = isoAddDays(90)
+
+    const agg: Record<string, SupplierAgg> = {}
+    for (const row of (aggRows ?? [])) {
+      if (!row.supplier_id) continue
+      if (!agg[row.supplier_id]) {
+        agg[row.supplier_id] = { overdueCents: 0, due7dCents: 0, due30dCents: 0, due90dCents: 0 }
+      }
+      const amount = Math.abs(row.amount_cents as number)
+      const a = agg[row.supplier_id]
+      if ((row.due_date as string) < today)       a.overdueCents += amount
+      else if ((row.due_date as string) <= d7)    a.due7dCents   += amount
+      else if ((row.due_date as string) <= d30)   a.due30dCents  += amount
+      else if ((row.due_date as string) <= d90)   a.due90dCents  += amount
+    }
 
     return (
       <div className="p-6 max-w-6xl">
         <Header />
         <ScheduleFilters companies={companies ?? []} />
-        <SuppliersTab suppliers={suppliers ?? []} />
+        <SuppliersTab suppliers={suppliers ?? []} agg={agg} />
       </div>
     )
   }
 
-  // --- SCHEDULE TAB ---
-  let q = supabase
+  // ── SCHEDULE TAB ─────────────────────────────────────────────────────────
+  let dbq = supabase
     .from('payment_schedule')
     .select('*', { count: 'exact' })
 
-  if (companyId) q = q.eq('company_id', companyId)
-  if (status) q = q.eq('status', status)
-  if (flow) q = q.eq('flow_type', flow)
-  if (from) q = q.gte('due_date', from)
-  if (to) q = q.lte('due_date', to)
+  if (companyId) dbq = dbq.eq('company_id', companyId)
+  if (status)    dbq = dbq.eq('status', status)
+  if (flow)      dbq = dbq.eq('flow_type', flow)
+  if (from)      dbq = dbq.gte('due_date', from)
+  if (to)        dbq = dbq.lte('due_date', to)
+  if (search)    dbq = dbq.or(`supplier_name.ilike.%${search}%,account_description.ilike.%${search}%`)
 
-  q = q
-    .order('due_date', { ascending: true })
+  dbq = dbq
+    .order('due_date', { ascending: sort !== 'desc' })
     .order('priority_score', { ascending: false, nullsFirst: false })
     .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1)
 
-  const { data: items, count } = await q
+  const { data: items, count } = await dbq
 
   const totalPages = Math.ceil((count ?? 0) / PAGE_SIZE)
   const rows = (items ?? []) as PaymentScheduleItem[]
 
-  // Stats for current result set
   const totalOut = rows.filter(r => r.flow_type === 'out').reduce((s, r) => s + Math.abs(r.amount_cents), 0)
-  const totalIn = rows.filter(r => r.flow_type === 'in').reduce((s, r) => s + Math.abs(r.amount_cents), 0)
-  const overdueCount = rows.filter(r => {
-    const today = new Date().toISOString().split('T')[0]
-    return r.due_date < today && r.flow_type === 'out' && r.status !== 'paid' && r.status !== 'cancelled'
-  }).length
+  const totalIn  = rows.filter(r => r.flow_type === 'in').reduce((s, r)  => s + Math.abs(r.amount_cents), 0)
+  const today    = new Date().toISOString().split('T')[0]
+  const overdueCount = rows.filter(r =>
+    r.due_date < today && r.flow_type === 'out' && r.status !== 'paid' && r.status !== 'cancelled'
+  ).length
 
   const buildPageUrl = (p: number) => {
     const params = new URLSearchParams(sp)
     params.set('page', String(p))
     return `/schedule?${params.toString()}`
   }
+
+  // Sort toggle link for Scadenza header
+  const sortToggleHref = (() => {
+    const params = new URLSearchParams(sp)
+    params.set('sort', sort === 'asc' ? 'desc' : 'asc')
+    params.delete('page')
+    return `/schedule?${params.toString()}`
+  })()
 
   return (
     <div className="p-6 max-w-6xl">
@@ -152,11 +196,11 @@ export default async function SchedulePage({
       {rows.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-12 text-center">
           <p className="text-zinc-500 text-sm">
-            {!companyId && !status && !flow && !from && !to
+            {!companyId && !status && !flow && !from && !to && !search
               ? 'Seleziona una società o importa il primo scadenzario XLS.'
               : 'Nessun risultato con i filtri applicati.'}
           </p>
-          {!companyId && !status && !flow && !from && !to && (
+          {!companyId && !status && !flow && !from && !to && !search && (
             <Link
               href="/schedule/import"
               className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors"
@@ -173,7 +217,18 @@ export default async function SchedulePage({
               <thead>
                 <tr className="border-b border-zinc-800 bg-zinc-900/80">
                   <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">P</th>
-                  <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">Scadenza</th>
+                  <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">
+                    <Link
+                      href={sortToggleHref}
+                      className="inline-flex items-center gap-1 hover:text-zinc-200 transition-colors"
+                    >
+                      Scadenza
+                      {sort === 'desc'
+                        ? <span className="text-indigo-400">↓</span>
+                        : <span className="text-indigo-400">↑</span>
+                      }
+                    </Link>
+                  </th>
                   <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">Fornitore</th>
                   <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">Documento</th>
                   <th className="text-right px-3 py-2.5 text-zinc-400 font-medium">Importo</th>
@@ -191,7 +246,9 @@ export default async function SchedulePage({
                     <td className={`px-3 py-2 font-mono ${dueDateClass(item.due_date, item.status)}`}>
                       {new Date(item.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
                       {item.postponed_to && (
-                        <span className="ml-1 text-purple-400">→ {new Date(item.postponed_to + 'T00:00:00').toLocaleDateString('it-IT')}</span>
+                        <span className="ml-1 text-purple-400">
+                          → {new Date(item.postponed_to + 'T00:00:00').toLocaleDateString('it-IT')}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-2 max-w-44">
@@ -202,9 +259,7 @@ export default async function SchedulePage({
                       ) : (
                         <span className="text-zinc-600">—</span>
                       )}
-                      {item.is_intercompany && (
-                        <span className="text-amber-400 text-xs">IC</span>
-                      )}
+                      {item.is_intercompany && <span className="text-amber-400 text-xs">IC</span>}
                     </td>
                     <td className="px-3 py-2 text-zinc-400">
                       {item.document_type && (
