@@ -55,7 +55,14 @@ export async function importBatchAction(
   if (!companyRow) return { error: `Società con codice "${companyCode}" non trovata` }
   const companyId = companyRow.id
 
-  // 1. Fetch companies per mapping legal_name → id
+  // 1. Elimina tutti i dati precedenti della società (wipe + re-import)
+  const { error: deleteErr } = await supabase
+    .from('payment_schedule')
+    .delete()
+    .eq('company_id', companyId)
+  if (deleteErr) return { error: `Errore eliminazione dati precedenti: ${deleteErr.message}` }
+
+  // 2. Fetch companies per mapping legal_name → id
   const { data: companies } = await supabase.from('companies').select('id, legal_name')
   const legalNameToId = new Map(
     (companies ?? [])
@@ -63,7 +70,7 @@ export async function importBatchAction(
       .map(c => [c.legal_name!.toLowerCase(), c.id])
   )
 
-  // 2. Crea import batch
+  // 3. Crea import batch
   const { data: batch, error: batchErr } = await supabase
     .from('import_batches')
     .insert({ company_id: companyId, imported_by: user.id, file_name: fileName, status: 'in_progress' })
@@ -72,7 +79,7 @@ export async function importBatchAction(
 
   if (batchErr || !batch) return { error: batchErr?.message ?? 'Errore creazione batch' }
 
-  // 3. Upsert fornitori (solo nuovi, non sovrascrivere quelli esistenti con categoria già impostata)
+  // 4. Upsert fornitori (solo nuovi, non sovrascrivere quelli esistenti con categoria già impostata)
   const uniqueSuppliers = new Map<string, string>() // code → name
   for (const row of rows) {
     if (row.supplier_code && row.supplier_name && !uniqueSuppliers.has(row.supplier_code)) {
@@ -96,7 +103,7 @@ export async function importBatchAction(
     suppliersNew = inserted?.length ?? 0
   }
 
-  // 4. Fetch supplier registry (per categoria e flag critico → priority score)
+  // 5. Fetch supplier registry (per categoria e flag critico → priority score)
   const { data: supplierRegistry } = await supabase
     .from('supplier_registry')
     .select('id, supplier_code, category, is_critical, accepts_postponement')
@@ -114,7 +121,7 @@ export async function importBatchAction(
     ])
   )
 
-  // 5. Prepara righe payment_schedule
+  // 6. Prepara righe payment_schedule
   const paymentRows = rows.map(row => {
     const supplier = row.supplier_code ? supplierMap.get(row.supplier_code) : null
     const counterpartId = row.counterpart_legal_name
@@ -165,7 +172,7 @@ export async function importBatchAction(
     }
   })
 
-  // 6. Insert a blocchi di 100 (ON CONFLICT DO NOTHING — non sovrascrivere stati utente)
+  // 7. Insert a blocchi di 100
   let rowsNew = 0
   let rowsSkipped = 0
   const CHUNK = 100
@@ -186,7 +193,7 @@ export async function importBatchAction(
     }
   }
 
-  // 7. Aggiorna batch con statistiche finali
+  // 8. Aggiorna batch con statistiche finali
   await supabase
     .from('import_batches')
     .update({ rows_imported: rows.length, rows_new: rowsNew, status: 'completed' })
