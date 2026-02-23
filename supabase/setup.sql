@@ -156,10 +156,7 @@ CREATE TABLE IF NOT EXISTS payment_schedule (
   priority_score NUMERIC(5,2),
   priority_override INTEGER CHECK (priority_override BETWEEN 1 AND 10),
   supplier_id UUID REFERENCES supplier_registry(id),
-  dedup_key TEXT GENERATED ALWAYS AS (
-    company_id::TEXT || '|' || COALESCE(supplier_code,'') || '|' ||
-    COALESCE(document_number,'') || '|' || due_date::TEXT || '|' || amount_cents::TEXT
-  ) STORED,
+  dedup_key TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -190,6 +187,24 @@ CREATE TABLE IF NOT EXISTS intercompany_nettings (
 
 -- ─── FUNZIONI & TRIGGER ─────────────────────────────────────
 
+-- Calcolo dedup_key per payment_schedule (trigger evita problemi di immutabilità)
+CREATE OR REPLACE FUNCTION compute_dedup_key()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.dedup_key := NEW.company_id::TEXT || '|' ||
+                   COALESCE(NEW.supplier_code, '') || '|' ||
+                   COALESCE(NEW.document_number, '') || '|' ||
+                   to_char(NEW.due_date, 'YYYY-MM-DD') || '|' ||
+                   NEW.amount_cents::TEXT;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_dedup_key ON payment_schedule;
+CREATE TRIGGER set_dedup_key
+  BEFORE INSERT OR UPDATE ON payment_schedule
+  FOR EACH ROW EXECUTE FUNCTION compute_dedup_key();
+
 CREATE OR REPLACE FUNCTION get_user_role()
 RETURNS TEXT AS $$
   SELECT role FROM user_profiles WHERE id = auth.uid();
@@ -213,21 +228,18 @@ CREATE TRIGGER update_payment_schedule_updated_at
   BEFORE UPDATE ON payment_schedule
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Auto-create user_profile al signup
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO user_profiles (id, email, role)
-  VALUES (NEW.id, NEW.email, 'supervisor')
-  ON CONFLICT (id) DO NOTHING;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+-- NOTA: i profili utente vanno inseriti manualmente in user_profiles
+-- dopo aver creato gli utenti in Supabase Auth (Authentication → Users).
+-- Esempio:
+--   INSERT INTO user_profiles (id, email, role)
+--   SELECT id, email,
+--     CASE
+--       WHEN email = 'marco@...'   THEN 'strategic'
+--       WHEN email = 'orianna@...' THEN 'operational'
+--       WHEN email = 'maurizio@...' THEN 'supervisor'
+--     END
+--   FROM auth.users
+--   WHERE email IN ('marco@...', 'orianna@...', 'maurizio@...');
 
 -- ─── ROW LEVEL SECURITY ─────────────────────────────────────
 
