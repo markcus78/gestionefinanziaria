@@ -47,6 +47,13 @@ export type CompanyCashChannel = {
   custom_commission_fixed_cents: number | null
   custom_settlement_days: number | null
   bank_account_id: string | null
+  payout_type: 'rolling_days' | 'fixed_weekday' | null
+  payout_rolling_days: number | null
+  payout_fixed_weekday: number | null
+}
+
+export type ChannelConfig = CompanyCashChannel & {
+  cash_channels: CashChannel
 }
 
 export type PatternType = 'monthly_first_10' | 'daily' | 'daily_with_settlement'
@@ -78,6 +85,7 @@ export type DailyCollection = {
   gross_amount_cents: number
   commission_cents: number
   net_amount_cents: number
+  transaction_count: number
   settlement_expected_date: string | null
   is_settled: boolean
   settled_date: string | null
@@ -85,6 +93,10 @@ export type DailyCollection = {
   notes: string | null
   created_by: string | null
   created_at: string
+}
+
+export type CollectionWithChannel = DailyCollection & {
+  cash_channels: { name: string }
 }
 
 export type SupplierCategory =

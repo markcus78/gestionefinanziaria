@@ -67,6 +67,9 @@ export async function updateChannelConfig(_: unknown, formData: FormData) {
   const commPct = formData.get('commission_pct') as string
   const commFixed = formData.get('commission_fixed') as string
   const settlement = formData.get('settlement_days') as string
+  const payoutType = formData.get('payout_type') as string
+  const payoutRollingDays = formData.get('payout_rolling_days') as string
+  const payoutFixedWeekday = formData.get('payout_fixed_weekday') as string
 
   const { error } = await supabase
     .from('company_cash_channels')
@@ -78,6 +81,9 @@ export async function updateChannelConfig(_: unknown, formData: FormData) {
         custom_commission_fixed_cents: commFixed ? Math.round(parseFloat(commFixed) * 100) : null,
         custom_settlement_days: settlement ? parseInt(settlement) : null,
         bank_account_id: (formData.get('bank_account_id') as string) || null,
+        payout_type: payoutType || null,
+        payout_rolling_days: payoutRollingDays ? parseInt(payoutRollingDays) : null,
+        payout_fixed_weekday: payoutFixedWeekday !== '' && payoutFixedWeekday != null ? parseInt(payoutFixedWeekday) : null,
       },
       { onConflict: 'company_id,channel_id' }
     )
