@@ -45,3 +45,5 @@ next-env.d.ts
 
 # dati gestionali (file XLS locali)
 /data/
+
+.vercel
