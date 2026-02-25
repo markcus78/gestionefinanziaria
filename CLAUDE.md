@@ -119,8 +119,8 @@ supabase/setup.sql     ← schema DB completo
 | Email | Ruolo |
 |---|---|
 | marco@wellnesstown.it | `strategic` |
-| orianna@wellnesstown.it | `operational` |
-| maurizio@wellnesstown.it | `supervisor` |
+| orianna@wellnesstown.it | `strategic` |
+| maurizio@wellnesstown.it | `strategic` |
 
 ---
 
@@ -142,3 +142,4 @@ Canali incasso: Stripe, SumUp, AlmaPay, POS, Satispay, PayPal, Contanti, Bonific
 | 4 | ✅ Completa | Tesoreria 30gg: timeline, pagamenti |
 | 5 | ✅ Completa | Previsione 6 mesi: cashflow, spese stimate |
 | 6 | ✅ Completa | Intercompany: partite, netting, storico |
+| 7 | ✅ Completa | Segnalazioni interne: modal, email Resend, badge sidebar |
