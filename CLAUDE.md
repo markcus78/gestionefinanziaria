@@ -90,8 +90,11 @@ app/
     treasury/          ← tesoreria 30gg (Fase 4)
     forecast/          ← previsione 6 mesi (Fase 5)
     intercompany/      ← netting intercompany (Fase 6)
+    reports/           ← segnalazioni interne (Fase 7)
+                         actions.ts, page.tsx, reports-client.tsx
 components/
   sidebar.tsx
+  report-modal.tsx     ← modal segnalazione (dynamic import, ssr:false)
 lib/
   supabase/client.ts + server.ts
   types/database.ts    ← tipi TypeScript del DB
