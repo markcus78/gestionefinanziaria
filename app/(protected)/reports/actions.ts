@@ -25,7 +25,7 @@ export async function createReport(report_type: ReportType, page: string, descri
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          from: 'GestFin <onboarding@resend.dev>',
+          from: 'GestFin <noreply@resend.wellnesstown.it>',
           to: ['marco@wellnesstown.it'],
           subject: `[GestFin] Segnalazione: ${typeLabel} — ${page}`,
           html: `<div style="font-family:monospace;background:#18181b;color:#e4e4e7;padding:16px;border-radius:8px;white-space:pre-wrap">${text}</div><p style="color:#71717a;font-size:12px;margin-top:16px">→ <a href="https://gestionefinanziariawt.vercel.app/reports" style="color:#818cf8">Apri Segnalazioni</a></p>`,
