@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import {
   LayoutDashboard,
   TrendingUp,
@@ -12,8 +14,12 @@ import {
   Settings,
   Building2,
   LogOut,
+  Flag,
+  MessageSquare,
 } from 'lucide-react'
 import { signOut } from '@/app/login/actions'
+
+const ReportModal = dynamic(() => import('./report-modal').then(m => m.ReportModal), { ssr: false })
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -24,8 +30,14 @@ const navItems = [
   { href: '/intercompany', label: 'Intercompany', icon: ArrowLeftRight },
 ]
 
-export function Sidebar() {
+type SidebarProps = {
+  unreadCount?: number
+  isStrategic?: boolean
+}
+
+export function Sidebar({ unreadCount, isStrategic }: SidebarProps) {
   const pathname = usePathname()
+  const [modalOpen, setModalOpen] = useState(false)
 
   return (
     <aside className="w-56 bg-zinc-900 border-r border-zinc-800 flex flex-col h-full shrink-0">
@@ -61,10 +73,39 @@ export function Sidebar() {
             </Link>
           )
         })}
+
+        {/* Segnalazioni — solo strategic */}
+        {isStrategic && (
+          <Link
+            href="/reports"
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+              pathname === '/reports' || pathname.startsWith('/reports/')
+                ? 'bg-indigo-600 text-white'
+                : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+            }`}
+          >
+            <Flag className="w-4 h-4 shrink-0" />
+            <span className="flex-1">Segnalazioni</span>
+            {unreadCount != null && unreadCount > 0 && (
+              <span className="bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                {unreadCount}
+              </span>
+            )}
+          </Link>
+        )}
       </nav>
 
       {/* Bottom */}
       <div className="px-2 py-3 border-t border-zinc-800 space-y-0.5">
+        {/* Bottone Segnala — visibile a tutti */}
+        <button
+          onClick={() => setModalOpen(true)}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+        >
+          <MessageSquare className="w-4 h-4 shrink-0" />
+          Segnala
+        </button>
+
         <Link
           href="/settings"
           className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
@@ -86,6 +127,8 @@ export function Sidebar() {
           </button>
         </form>
       </div>
+
+      {modalOpen && <ReportModal onClose={() => setModalOpen(false)} />}
     </aside>
   )
 }

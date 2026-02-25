@@ -361,3 +361,23 @@ SELECT c.id, ch.id, 'daily_with_settlement', 'APPIAE abbonamenti: settlement pro
 FROM companies c, cash_channels ch
 WHERE c.code = 'APPIAE' AND ch.name IN ('Stripe', 'AlmaPay', 'SumUp', 'Satispay')
 ON CONFLICT (company_id, channel_id) DO NOTHING;
+
+-- ─── FASE 7: SEGNALAZIONI INTERNE ───────────────────────────
+
+CREATE TABLE IF NOT EXISTS reports (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at   TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  created_by   UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  author_email TEXT,
+  report_type  TEXT NOT NULL CHECK (report_type IN ('bug', 'domanda', 'integrazione', 'altro')),
+  page         TEXT NOT NULL,
+  description  TEXT NOT NULL,
+  is_read      BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "read_all"         ON reports FOR SELECT TO authenticated USING (true);
+CREATE POLICY "write_all"        ON reports FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "update_strategic" ON reports FOR UPDATE TO authenticated USING (get_user_role() = 'strategic');
+CREATE POLICY "delete_strategic" ON reports FOR DELETE TO authenticated USING (get_user_role() = 'strategic');

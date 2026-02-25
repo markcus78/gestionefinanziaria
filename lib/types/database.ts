@@ -198,3 +198,16 @@ export type IntercompanyNetting = {
   details: Record<string, unknown> | null
   created_at: string
 }
+
+export type ReportType = 'bug' | 'domanda' | 'integrazione' | 'altro'
+
+export type Report = {
+  id: string
+  created_at: string
+  created_by: string | null
+  author_email: string | null
+  report_type: ReportType
+  page: string
+  description: string
+  is_read: boolean
+}
