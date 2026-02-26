@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { ChevronRight } from 'lucide-react'
 import RowActions from './row-actions'
 import type { PaymentScheduleItem, PaymentStatus } from '@/lib/types/database'
@@ -98,6 +99,24 @@ function buildGroups(rows: PaymentScheduleItem[]): YearGroup[] {
 export default function ScheduleGrouped({ rows, today }: Props) {
   const currentYear  = parseInt(today.slice(0, 4))
   const currentMonth = parseInt(today.slice(5, 7))
+
+  const router   = useRouter()
+  const pathname = usePathname()
+  const sp       = useSearchParams()
+
+  const navigateSupplier = useCallback((item: PaymentScheduleItem) => {
+    const params = new URLSearchParams(sp.toString())
+    if (item.supplier_id) {
+      params.set('supplier_id',    item.supplier_id)
+      params.set('supplier_label', item.supplier_name ?? '')
+    } else if (item.supplier_name) {
+      params.set('q', item.supplier_name)
+    } else {
+      return
+    }
+    params.delete('page')
+    router.push(`${pathname}?${params.toString()}`)
+  }, [sp, pathname, router])
 
   const [openYears,  setOpenYears]  = useState<Set<number>>(new Set([currentYear]))
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set([`${currentYear}-${String(currentMonth).padStart(2,'0')}`]))
@@ -216,7 +235,12 @@ export default function ScheduleGrouped({ rows, today }: Props) {
                                               </td>
                                               <td className="px-3 py-2 max-w-44">
                                                 {item.supplier_name ? (
-                                                  <span className="text-zinc-200 block truncate">{item.supplier_name}</span>
+                                                  <button
+                                                    onClick={() => navigateSupplier(item)}
+                                                    className="text-zinc-200 block truncate hover:text-indigo-300 hover:underline text-left w-full"
+                                                  >
+                                                    {item.supplier_name}
+                                                  </button>
                                                 ) : item.account_description ? (
                                                   <span className="text-zinc-400 block truncate italic">{item.account_description}</span>
                                                 ) : (

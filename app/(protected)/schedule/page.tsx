@@ -34,13 +34,14 @@ export default async function SchedulePage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const tab       = sp.tab     ?? 'schedule'
-  const companyId = sp.company ?? ''
-  const status    = sp.status  ?? ''
-  const flow      = sp.flow    ?? ''
-  const from      = sp.from    ?? ''
-  const to        = sp.to      ?? ''
-  const search    = sp.q       ?? ''
+  const tab        = sp.tab         ?? 'schedule'
+  const companyId  = sp.company     ?? ''
+  const status     = sp.status      ?? ''
+  const flow       = sp.flow        ?? ''
+  const from       = sp.from        ?? ''
+  const to         = sp.to          ?? ''
+  const search     = sp.q           ?? ''
+  const supplierId = sp.supplier_id ?? ''
 
   // Fetch companies for filter
   const { data: companies } = await supabase
@@ -97,12 +98,13 @@ export default async function SchedulePage({
     .from('payment_schedule')
     .select('*')
 
-  if (companyId) dbq = dbq.eq('company_id', companyId)
-  if (status)    dbq = dbq.eq('status', status)
-  if (flow)      dbq = dbq.eq('flow_type', flow)
-  if (from)      dbq = dbq.gte('due_date', from)
-  if (to)        dbq = dbq.lte('due_date', to)
-  if (search)    dbq = dbq.or(`supplier_name.ilike.%${search}%,account_description.ilike.%${search}%`)
+  if (companyId)  dbq = dbq.eq('company_id', companyId)
+  if (status)     dbq = dbq.eq('status', status)
+  if (flow)       dbq = dbq.eq('flow_type', flow)
+  if (from)       dbq = dbq.gte('due_date', from)
+  if (to)         dbq = dbq.lte('due_date', to)
+  if (supplierId) dbq = dbq.eq('supplier_id', supplierId)
+  if (search)     dbq = dbq.or(`supplier_name.ilike.%${search}%,account_description.ilike.%${search}%`)
 
   dbq = dbq
     .order('due_date', { ascending: true })

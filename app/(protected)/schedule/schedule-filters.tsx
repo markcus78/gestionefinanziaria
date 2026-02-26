@@ -45,12 +45,14 @@ export default function ScheduleFilters({ companies }: Props) {
   const pathname = usePathname()
   const sp = useSearchParams()
 
-  const tab     = sp.get('tab')     ?? 'schedule'
-  const company = sp.get('company') ?? ''
-  const status  = sp.get('status')  ?? ''
-  const flow    = sp.get('flow')    ?? ''
-  const from    = sp.get('from')    ?? ''
-  const to      = sp.get('to')      ?? ''
+  const tab           = sp.get('tab')            ?? 'schedule'
+  const company       = sp.get('company')        ?? ''
+  const status        = sp.get('status')         ?? ''
+  const flow          = sp.get('flow')           ?? ''
+  const from          = sp.get('from')           ?? ''
+  const to            = sp.get('to')             ?? ''
+  const supplierId    = sp.get('supplier_id')    ?? ''
+  const supplierLabel = sp.get('supplier_label') ?? ''
 
   const [searchVal, setSearchVal] = useState(sp.get('q') ?? '')
   const [fromLocal, setFromLocal] = useState(from)
@@ -119,6 +121,22 @@ export default function ScheduleFilters({ companies }: Props) {
           ))}
         </div>
       </div>
+
+      {/* Active supplier filter chip */}
+      {tab === 'schedule' && supplierId && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500">Fornitore:</span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-600/20 border border-indigo-500/40 rounded-full text-xs text-indigo-300">
+            {supplierLabel || supplierId}
+            <button
+              onClick={() => push({ supplier_id: '', supplier_label: '' })}
+              className="hover:text-white"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </span>
+        </div>
+      )}
 
       {/* Search (only for schedule tab) */}
       {tab === 'schedule' && (
