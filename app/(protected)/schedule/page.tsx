@@ -4,8 +4,9 @@ import Link from 'next/link'
 import { FileSpreadsheet } from 'lucide-react'
 import ScheduleFilters from './schedule-filters'
 import ScheduleGrouped from './schedule-grouped'
+import RowActions from './row-actions'
 import SuppliersTab from './suppliers-tab'
-import type { PaymentScheduleItem } from '@/lib/types/database'
+import type { PaymentScheduleItem, PaymentStatus } from '@/lib/types/database'
 
 export type SupplierAgg = {
   overdueCents: number
@@ -22,6 +23,36 @@ function isoAddDays(days: number) {
   const d = new Date()
   d.setDate(d.getDate() + days)
   return d.toISOString().split('T')[0]
+}
+
+function StatusBadge({ status }: { status: PaymentStatus }) {
+  const map: Record<PaymentStatus, { label: string; cls: string }> = {
+    pending:   { label: 'Pendente',    cls: 'bg-amber-500/20 text-amber-400' },
+    scheduled: { label: 'Programmato', cls: 'bg-blue-500/20 text-blue-400' },
+    paid:      { label: 'Pagato',      cls: 'bg-emerald-500/20 text-emerald-400' },
+    postponed: { label: 'Posticipato', cls: 'bg-purple-500/20 text-purple-400' },
+    disputed:  { label: 'Contestato',  cls: 'bg-red-500/20 text-red-400' },
+    cancelled: { label: 'Annullato',   cls: 'bg-zinc-700 text-zinc-400' },
+  }
+  const { label, cls } = map[status] ?? map.pending
+  return <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>
+}
+
+function PriorityBadge({ score }: { score: number | null }) {
+  if (score === null) return null
+  const cls =
+    score >= 12 ? 'bg-red-500/20 text-red-400' :
+    score >= 8  ? 'bg-orange-500/20 text-orange-400' :
+    score >= 5  ? 'bg-amber-500/20 text-amber-400' :
+                  'bg-zinc-700 text-zinc-400'
+  return <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${cls}`}>{score}</span>
+}
+
+function dueDateClass(dueDate: string, status: PaymentStatus, today: string): string {
+  if (status === 'paid' || status === 'cancelled') return 'text-zinc-500'
+  if (dueDate < today) return 'text-red-400 font-semibold'
+  if (dueDate <= isoAddDays(7)) return 'text-amber-400'
+  return 'text-zinc-300'
 }
 
 export default async function SchedulePage({
@@ -143,15 +174,14 @@ export default async function SchedulePage({
         </div>
       )}
 
-      {/* Grouped view */}
       {rows.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-12 text-center">
           <p className="text-zinc-500 text-sm">
-            {!companyId && !status && !flow && !from && !to && !search
+            {!companyId && !status && !flow && !from && !to && !search && !supplierId
               ? 'Seleziona una società o importa il primo scadenzario XLS.'
               : 'Nessun risultato con i filtri applicati.'}
           </p>
-          {!companyId && !status && !flow && !from && !to && !search && (
+          {!companyId && !status && !flow && !from && !to && !search && !supplierId && (
             <Link
               href="/schedule/import"
               className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors"
@@ -161,7 +191,75 @@ export default async function SchedulePage({
             </Link>
           )}
         </div>
+      ) : supplierId ? (
+        /* ── Flat table (single supplier view) ── */
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-zinc-800 bg-zinc-900/80">
+                  <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">P</th>
+                  <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">Scadenza</th>
+                  <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">Documento</th>
+                  <th className="text-right px-3 py-2.5 text-zinc-400 font-medium">Importo</th>
+                  <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">Stato</th>
+                  <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">Tipo</th>
+                  <th className="px-3 py-2.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(item => (
+                  <tr key={item.id} className="border-b border-zinc-800/40 last:border-0 hover:bg-zinc-800/20">
+                    <td className="px-3 py-2">
+                      <PriorityBadge score={item.priority_override ?? item.priority_score} />
+                    </td>
+                    <td className={`px-3 py-2 font-mono ${dueDateClass(item.due_date, item.status, today)}`}>
+                      {new Date(item.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
+                      {item.postponed_to && (
+                        <span className="ml-1 text-purple-400">
+                          → {new Date(item.postponed_to + 'T00:00:00').toLocaleDateString('it-IT')}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-zinc-400">
+                      {item.document_type && (
+                        <span className="px-1 py-0.5 bg-zinc-800 rounded text-zinc-300 mr-1">{item.document_type}</span>
+                      )}
+                      {item.document_number ? (
+                        <span className="font-mono">{item.document_number}</span>
+                      ) : item.account_code && !item.supplier_name ? (
+                        <span className="text-zinc-600 font-mono">{item.account_code}</span>
+                      ) : (
+                        <span className="text-zinc-600">—</span>
+                      )}
+                    </td>
+                    <td className={`px-3 py-2 text-right font-medium tabular-nums ${item.flow_type === 'out' ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {item.flow_type === 'out' ? '-' : '+'}{formatEur(Math.abs(item.amount_cents))}
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={item.status} />
+                      {item.paid_date && (
+                        <span className="text-zinc-500 ml-1">
+                          {new Date(item.paid_date + 'T00:00:00').toLocaleDateString('it-IT')}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`px-1.5 py-0.5 rounded text-xs ${item.entry_type === 'accounting' ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'}`}>
+                        {item.entry_type === 'accounting' ? 'cont.' : 'imp.'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <RowActions item={item} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : (
+        /* ── Grouped view (default) ── */
         <ScheduleGrouped rows={rows} today={today} />
       )}
     </div>
