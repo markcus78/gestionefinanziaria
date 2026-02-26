@@ -255,6 +255,17 @@ export default async function SchedulePage({
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="border-t border-zinc-700 bg-zinc-800/50">
+                  <td colSpan={3} className="px-3 py-2.5 text-xs text-zinc-400 font-medium">Totale</td>
+                  <td className="px-3 py-2.5 text-right text-xs font-semibold tabular-nums">
+                    {totalOut > 0 && <span className="text-red-400">-{formatEur(totalOut)}</span>}
+                    {totalOut > 0 && totalIn > 0 && <span className="mx-1 text-zinc-600">/</span>}
+                    {totalIn > 0 && <span className="text-emerald-400">+{formatEur(totalIn)}</span>}
+                  </td>
+                  <td colSpan={3} />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
