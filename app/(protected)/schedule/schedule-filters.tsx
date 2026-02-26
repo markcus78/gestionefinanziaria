@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useCallback, useRef, useState } from 'react'
-import { Search, X } from 'lucide-react'
+import { Search, X, Calendar } from 'lucide-react'
 import type { Company } from '@/lib/types/database'
 
 type Props = {
@@ -192,6 +192,35 @@ export default function ScheduleFilters({ companies }: Props) {
                 {p.label}
               </button>
             ))}
+          </div>
+
+          <div className="w-px h-4 bg-zinc-700" />
+
+          {/* Date range inputs */}
+          <div className="flex items-center gap-2">
+            <Calendar className="w-3.5 h-3.5 text-zinc-500" />
+            <input
+              type="date"
+              value={from}
+              onChange={e => push({ from: e.target.value })}
+              className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <span className="text-zinc-600 text-xs">→</span>
+            <input
+              type="date"
+              value={to}
+              onChange={e => push({ to: e.target.value })}
+              className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            {(from || to) && (
+              <button
+                onClick={() => push({ from: '', to: '' })}
+                title="Azzera filtro date"
+                className="text-zinc-500 hover:text-zinc-300"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
       )}
