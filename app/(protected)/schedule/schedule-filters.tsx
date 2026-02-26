@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Search, X, Calendar } from 'lucide-react'
 import type { Company } from '@/lib/types/database'
 
@@ -53,7 +53,13 @@ export default function ScheduleFilters({ companies }: Props) {
   const to      = sp.get('to')      ?? ''
 
   const [searchVal, setSearchVal] = useState(sp.get('q') ?? '')
+  const [fromLocal, setFromLocal] = useState(from)
+  const [toLocal,   setToLocal]   = useState(to)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  // Sync local date state when URL changes (e.g. preset buttons or X)
+  useEffect(() => { setFromLocal(from) }, [from])
+  useEffect(() => { setToLocal(to) }, [to])
 
   const push = useCallback((updates: Record<string, string>) => {
     const params = new URLSearchParams(sp.toString())
@@ -201,18 +207,20 @@ export default function ScheduleFilters({ companies }: Props) {
             <Calendar className="w-3.5 h-3.5 text-zinc-500" />
             <input
               type="date"
-              value={from}
-              onChange={e => push({ from: e.target.value })}
+              value={fromLocal}
+              onChange={e => setFromLocal(e.target.value)}
+              onBlur={e => push({ from: e.target.value })}
               className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
             <span className="text-zinc-600 text-xs">→</span>
             <input
               type="date"
-              value={to}
-              onChange={e => push({ to: e.target.value })}
+              value={toLocal}
+              onChange={e => setToLocal(e.target.value)}
+              onBlur={e => push({ to: e.target.value })}
               className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
-            {(from || to) && (
+            {(fromLocal || toLocal) && (
               <button
                 onClick={() => push({ from: '', to: '' })}
                 title="Azzera filtro date"
