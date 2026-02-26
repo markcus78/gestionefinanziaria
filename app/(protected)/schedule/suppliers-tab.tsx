@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { Search } from 'lucide-react'
 import { updateSupplier } from './actions'
 import type { SupplierRegistry, SupplierCategory } from '@/lib/types/database'
 import type { SupplierAgg } from './page'
@@ -122,6 +123,7 @@ function SupplierRow({ supplier, supplierAgg, scheduleHref }: {
 export default function SuppliersTab({ suppliers, agg }: Props) {
   const sp = useSearchParams()
   const company = sp.get('company') ?? ''
+  const [search, setSearch] = useState('')
 
   function makeHref(name: string) {
     const params = new URLSearchParams()
@@ -130,6 +132,10 @@ export default function SuppliersTab({ suppliers, agg }: Props) {
     if (company) params.set('company', company)
     return `/schedule?${params.toString()}`
   }
+
+  const filtered = search
+    ? suppliers.filter(s => s.supplier_name.toLowerCase().includes(search.toLowerCase()))
+    : suppliers
 
   if (!suppliers.length) {
     return (
@@ -143,9 +149,19 @@ export default function SuppliersTab({ suppliers, agg }: Props) {
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+      <div className="px-4 py-3 border-b border-zinc-800 flex items-center gap-3">
         <p className="text-sm font-medium text-zinc-200">Fornitori</p>
-        <p className="text-xs text-zinc-500">{suppliers.length} fornitori</p>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Cerca fornitore..."
+            className="pl-8 pr-3 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-52"
+          />
+        </div>
+        <p className="text-xs text-zinc-500 ml-auto">{filtered.length}/{suppliers.length} fornitori</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -163,7 +179,7 @@ export default function SuppliersTab({ suppliers, agg }: Props) {
             </tr>
           </thead>
           <tbody>
-            {suppliers.map(s => (
+            {filtered.map(s => (
               <SupplierRow
                 key={s.id}
                 supplier={s}
