@@ -168,6 +168,16 @@ export default function TimelineTab({ timeline, threshold, today }: Props) {
                       </span>
                     </div>
                   ))}
+                  {/* Totale uscite + saldo giornata */}
+                  <div className="grid grid-cols-[1fr_auto_auto] gap-4 px-8 py-2 border-t border-zinc-700/60 bg-zinc-800/40">
+                    <span className="text-xs text-zinc-500 font-medium">Totale uscite</span>
+                    <span className="text-xs text-red-400 font-semibold tabular-nums">
+                      -{formatEur(day.outflow)}
+                    </span>
+                    <span className={`text-xs font-semibold tabular-nums ${day.balance < 0 ? 'text-red-400' : 'text-zinc-300'}`}>
+                      Saldo: {formatEur(day.balance)}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
