@@ -123,7 +123,7 @@ export default async function TreasuryPage({
         category: sr?.category ?? null,
         isCritical: sr?.is_critical ?? false,
         dueDate: p.due_date,
-        amountCents: p.amount_cents,
+        amountCents: Math.abs(p.amount_cents),
         priorityScore: p.priority_score,
         priorityOverride: p.priority_override,
         isIntercompany: p.is_intercompany ?? false,
