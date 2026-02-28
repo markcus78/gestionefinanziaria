@@ -212,4 +212,5 @@ export type Report = {
   description: string
   is_read: boolean
   status: ReportStatus
+  notes: string | null
 }

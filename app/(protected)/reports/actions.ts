@@ -50,6 +50,16 @@ export async function markAsRead(reportId: string) {
   return { success: true as const }
 }
 
+export async function updateReportNotes(reportId: string, notes: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autenticato' }
+  const { error } = await supabase.from('reports').update({ notes }).eq('id', reportId)
+  if (error) return { error: error.message }
+  revalidatePath('/reports')
+  return { success: true as const }
+}
+
 export async function updateReportStatus(reportId: string, status: ReportStatus) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

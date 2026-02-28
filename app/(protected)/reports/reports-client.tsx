@@ -1,8 +1,8 @@
 'use client'
-import { useTransition, useState } from 'react'
+import { useTransition, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Copy, CheckCircle } from 'lucide-react'
-import { markAsRead, updateReportStatus } from './actions'
+import { markAsRead, updateReportStatus, updateReportNotes } from './actions'
 import type { Report, ReportType, ReportStatus } from '@/lib/types/database'
 
 const TYPE_BADGE: Record<ReportType, string> = {
@@ -29,7 +29,9 @@ const STATUS_LABEL: Record<ReportStatus, string> = {
 
 function formatCopyText(r: Report) {
   const date = new Date(r.created_at).toLocaleDateString('it-IT')
-  return `[SEGNALAZIONE — ${date}]\nDa: ${r.author_email ?? 'sconosciuto'}\nTipo: ${TYPE_LABEL[r.report_type]}\nPagina: ${r.page}\nDescrizione: "${r.description}"`
+  let text = `[SEGNALAZIONE — ${date}]\nDa: ${r.author_email ?? 'sconosciuto'}\nTipo: ${TYPE_LABEL[r.report_type]}\nPagina: ${r.page}\nDescrizione: "${r.description}"`
+  if (r.notes?.trim()) text += `\nNote: "${r.notes.trim()}"`
+  return text
 }
 
 function ActionButton({
@@ -61,12 +63,26 @@ function ReportCard({ report }: { report: Report }) {
   const [isPending, startTransition] = useTransition()
   const [copied, setCopied] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const text = formatCopyText(report)
+  const [noteText, setNoteText] = useState(report.notes ?? '')
+  const [noteSaved, setNoteSaved] = useState(false)
+  const prevNoteRef = useRef(report.notes ?? '')
 
   function handleCopy() {
+    const text = formatCopyText({ ...report, notes: noteText })
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  function handleNoteBlur() {
+    if (noteText === prevNoteRef.current) return
+    prevNoteRef.current = noteText
+    startTransition(async () => {
+      const res = await updateReportNotes(report.id, noteText)
+      if (res?.error) { setErr(res.error); return }
+      setNoteSaved(true)
+      setTimeout(() => setNoteSaved(false), 2000)
     })
   }
 
@@ -108,6 +124,19 @@ function ReportCard({ report }: { report: Report }) {
 
       {/* Descrizione */}
       <p className="text-sm text-zinc-300 leading-relaxed">{report.description}</p>
+
+      {/* Note aggiuntive */}
+      <div className="space-y-1">
+        <textarea
+          value={noteText}
+          onChange={e => setNoteText(e.target.value)}
+          onBlur={handleNoteBlur}
+          placeholder="Aggiungi note di contesto..."
+          rows={2}
+          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 resize-none focus:outline-none focus:border-zinc-600 transition-colors"
+        />
+        {noteSaved && <p className="text-xs text-green-400">Salvato ✓</p>}
+      </div>
 
       {err && <p className="text-xs text-red-400">{err}</p>}
 
