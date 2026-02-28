@@ -60,6 +60,7 @@ function ReportCard({ report }: { report: Report }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [copied, setCopied] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
   const text = formatCopyText(report)
 
   function handleCopy() {
@@ -70,8 +71,10 @@ function ReportCard({ report }: { report: Report }) {
   }
 
   function changeStatus(status: ReportStatus) {
+    setErr(null)
     startTransition(async () => {
-      await updateReportStatus(report.id, status)
+      const res = await updateReportStatus(report.id, status)
+      if (res?.error) { setErr(res.error); return }
       router.refresh()
     })
   }
@@ -105,6 +108,8 @@ function ReportCard({ report }: { report: Report }) {
 
       {/* Descrizione */}
       <p className="text-sm text-zinc-300 leading-relaxed">{report.description}</p>
+
+      {err && <p className="text-xs text-red-400">{err}</p>}
 
       {/* Azioni */}
       <div className="flex items-center gap-1 flex-wrap pt-1">
