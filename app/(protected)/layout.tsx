@@ -12,7 +12,7 @@ export default async function ProtectedLayout({ children }: { children: React.Re
 
   const [profileResult, countResult] = await Promise.all([
     supabase.from('user_profiles').select('role').eq('id', user.id).single(),
-    supabase.from('reports').select('id', { count: 'exact', head: true }).eq('is_read', false),
+    supabase.from('reports').select('id', { count: 'exact', head: true }).eq('status', 'aperta'),
   ])
 
   const isStrategic = profileResult.data?.role === 'strategic'

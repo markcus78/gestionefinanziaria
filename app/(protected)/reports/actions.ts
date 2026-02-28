@@ -1,7 +1,7 @@
 'use server'
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import type { ReportType } from '@/lib/types/database'
+import type { ReportType, ReportStatus } from '@/lib/types/database'
 
 export async function createReport(report_type: ReportType, page: string, description: string) {
   const supabase = await createClient()
@@ -44,6 +44,17 @@ export async function markAsRead(reportId: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
   const { error } = await supabase.from('reports').update({ is_read: true }).eq('id', reportId)
+  if (error) return { error: error.message }
+  revalidatePath('/reports')
+  revalidatePath('/', 'layout')
+  return { success: true as const }
+}
+
+export async function updateReportStatus(reportId: string, status: ReportStatus) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autenticato' }
+  const { error } = await supabase.from('reports').update({ status, is_read: true }).eq('id', reportId)
   if (error) return { error: error.message }
   revalidatePath('/reports')
   revalidatePath('/', 'layout')

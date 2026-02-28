@@ -200,6 +200,7 @@ export type IntercompanyNetting = {
 }
 
 export type ReportType = 'bug' | 'domanda' | 'integrazione' | 'altro'
+export type ReportStatus = 'aperta' | 'in_corso' | 'scartata' | 'risolta'
 
 export type Report = {
   id: string
@@ -210,4 +211,5 @@ export type Report = {
   page: string
   description: string
   is_read: boolean
+  status: ReportStatus
 }
