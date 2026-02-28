@@ -54,8 +54,16 @@ export async function updateReportStatus(reportId: string, status: ReportStatus)
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
-  const { error } = await supabase.from('reports').update({ status, is_read: true }).eq('id', reportId)
+  const { data, error } = await supabase
+    .from('reports')
+    .update({ status, is_read: true })
+    .eq('id', reportId)
+    .select('id')
   if (error) return { error: error.message }
+  if (!data || data.length === 0) {
+    const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
+    return { error: `Aggiornamento bloccato (ruolo: ${profile?.role ?? 'non trovato'})` }
+  }
   revalidatePath('/reports')
   revalidatePath('/', 'layout')
   return { success: true as const }
