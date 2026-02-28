@@ -1,8 +1,8 @@
 'use client'
-import { useTransition, useState, useRef } from 'react'
+import { useTransition, useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Copy, CheckCircle } from 'lucide-react'
-import { markAsRead, updateReportStatus, updateReportNotes } from './actions'
+import { markAsRead, updateReportStatus, updateReportNotes, deleteReports } from './actions'
 import type { Report, ReportType, ReportStatus } from '@/lib/types/database'
 
 const TYPE_BADGE: Record<ReportType, string> = {
@@ -58,7 +58,13 @@ function ActionButton({
   )
 }
 
-function ReportCard({ report }: { report: Report }) {
+function ReportCard({
+  report, selected, onToggle,
+}: {
+  report: Report
+  selected: boolean
+  onToggle: () => void
+}) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [copied, setCopied] = useState(false)
@@ -101,10 +107,16 @@ function ReportCard({ report }: { report: Report }) {
   })
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
+    <div className={`rounded-xl border bg-zinc-900/40 p-4 space-y-3 transition-colors ${selected ? 'border-indigo-700' : 'border-zinc-800'}`}>
       {/* Header riga */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            className="w-4 h-4 accent-indigo-500 cursor-pointer"
+          />
           <span className={`text-xs font-medium px-2 py-0.5 rounded border ${TYPE_BADGE[report.report_type]}`}>
             {TYPE_LABEL[report.report_type]}
           </span>
@@ -180,8 +192,17 @@ type FilterStatus = ReportStatus | 'tutte'
 type FilterType = ReportType | 'tutti'
 
 export function ReportsClient({ reports }: { reports: Report[] }) {
+  const router = useRouter()
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('tutte')
   const [filterType, setFilterType] = useState<FilterType>('tutti')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [isDeleting, startDeleteTransition] = useTransition()
+
+  useEffect(() => {
+    setSelectedIds(new Set())
+    setConfirmDelete(false)
+  }, [filterStatus, filterType])
 
   const counts: Record<ReportStatus, number> = { aperta: 0, in_corso: 0, risolta: 0, scartata: 0 }
   for (const r of reports) counts[r.status]++
@@ -191,6 +212,33 @@ export function ReportsClient({ reports }: { reports: Report[] }) {
     if (filterType !== 'tutti' && r.report_type !== filterType) return false
     return true
   })
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function selectAll() {
+    setSelectedIds(new Set(filtered.map(r => r.id)))
+  }
+
+  function clearSelect() {
+    setSelectedIds(new Set())
+    setConfirmDelete(false)
+  }
+
+  function handleDeleteClick() {
+    if (!confirmDelete) { setConfirmDelete(true); return }
+    startDeleteTransition(async () => {
+      const res = await deleteReports(Array.from(selectedIds))
+      if (res?.error) { alert(res.error); return }
+      router.refresh()
+      clearSelect()
+    })
+  }
 
   const statusFilters: { value: FilterStatus; label: string }[] = [
     { value: 'tutte', label: 'Tutte' },
@@ -270,7 +318,52 @@ export function ReportsClient({ reports }: { reports: Report[] }) {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map(r => <ReportCard key={r.id} report={r} />)}
+          {/* Barra selezione */}
+          <div className="flex items-center gap-3 text-xs text-zinc-400">
+            <button onClick={selectAll} className="hover:text-zinc-200 transition-colors">
+              Seleziona tutti
+            </button>
+            <span className="text-zinc-700">|</span>
+            <button onClick={clearSelect} className="hover:text-zinc-200 transition-colors">
+              Deseleziona tutti
+            </button>
+          </div>
+
+          {/* Barra azioni bulk */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-700">
+              <span className="text-xs text-zinc-300 font-medium">
+                {selectedIds.size} {selectedIds.size === 1 ? 'selezionata' : 'selezionate'}
+              </span>
+              <button
+                onClick={handleDeleteClick}
+                disabled={isDeleting}
+                className={`text-xs px-2.5 py-1 rounded border transition-colors disabled:opacity-40 ${
+                  confirmDelete
+                    ? 'border-red-600 bg-red-900/40 text-red-300 hover:bg-red-900/60'
+                    : 'border-red-800 text-red-400 hover:text-red-200 hover:bg-red-900/30'
+                }`}
+              >
+                {isDeleting ? 'Eliminazione…' : confirmDelete ? 'Conferma eliminazione' : 'Elimina selezionate'}
+              </button>
+              <button
+                onClick={clearSelect}
+                disabled={isDeleting}
+                className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40"
+              >
+                Annulla
+              </button>
+            </div>
+          )}
+
+          {filtered.map(r => (
+            <ReportCard
+              key={r.id}
+              report={r}
+              selected={selectedIds.has(r.id)}
+              onToggle={() => toggleSelect(r.id)}
+            />
+          ))}
         </div>
       )}
     </div>

@@ -60,6 +60,18 @@ export async function updateReportNotes(reportId: string, notes: string) {
   return { success: true as const }
 }
 
+export async function deleteReports(ids: string[]) {
+  if (!ids.length) return { error: 'Nessun ID' }
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autenticato' }
+  const { error } = await supabase.from('reports').delete().in('id', ids)
+  if (error) return { error: error.message }
+  revalidatePath('/reports')
+  revalidatePath('/', 'layout')
+  return { success: true as const }
+}
+
 export async function updateReportStatus(reportId: string, status: ReportStatus) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
