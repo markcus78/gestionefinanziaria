@@ -55,12 +55,22 @@ export async function importBatchAction(
   if (!companyRow) return { error: `Società con codice "${companyCode}" non trovata` }
   const companyId = companyRow.id
 
-  // 1. Elimina tutti i dati precedenti della società (wipe + re-import)
-  const { error: deleteErr } = await supabase
+  // 1. Elimina partite contabili (wipe + re-import) e commitment da XLS (import batch precedenti)
+  //    I commitment con import_batch_id IS NULL (creati manualmente) vengono preservati
+  const { error: deleteErr1 } = await supabase
     .from('payment_schedule')
     .delete()
     .eq('company_id', companyId)
-  if (deleteErr) return { error: `Errore eliminazione dati precedenti: ${deleteErr.message}` }
+    .eq('entry_type', 'accounting')
+  if (deleteErr1) return { error: `Errore eliminazione dati contabili: ${deleteErr1.message}` }
+
+  const { error: deleteErr2 } = await supabase
+    .from('payment_schedule')
+    .delete()
+    .eq('company_id', companyId)
+    .eq('entry_type', 'commitment')
+    .not('import_batch_id', 'is', null)
+  if (deleteErr2) return { error: `Errore eliminazione commitment XLS: ${deleteErr2.message}` }
 
   // 2. Fetch companies per mapping legal_name → id
   const { data: companies } = await supabase.from('companies').select('id, legal_name')

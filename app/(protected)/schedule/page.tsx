@@ -92,6 +92,7 @@ export default async function SchedulePage({
       .from('payment_schedule')
       .select('supplier_id, due_date, amount_cents')
       .eq('flow_type', 'out')
+      .eq('entry_type', 'accounting')
       .not('status', 'in', '("paid","cancelled")')
     if (companyId) aggQ = aggQ.eq('company_id', companyId)
     const { data: aggRows } = await aggQ
@@ -128,6 +129,7 @@ export default async function SchedulePage({
   let dbq = supabase
     .from('payment_schedule')
     .select('*')
+    .eq('entry_type', 'accounting')
 
   if (companyId)  dbq = dbq.eq('company_id', companyId)
   if (status)     dbq = dbq.eq('status', status)

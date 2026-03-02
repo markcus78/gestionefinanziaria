@@ -14,7 +14,6 @@ const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pendenti' },
   { value: 'scheduled', label: 'Programmati' },
   { value: 'paid', label: 'Pagati' },
-  { value: 'postponed', label: 'Posticipati' },
 ]
 
 const FLOW_OPTIONS = [
