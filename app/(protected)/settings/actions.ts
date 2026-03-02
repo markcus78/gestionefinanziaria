@@ -45,6 +45,24 @@ export async function toggleBankAccount(id: string, isActive: boolean) {
 
 // ─── Canali di Incasso ────────────────────────────────────────────────────────
 
+export async function createCashChannel(_: unknown, formData: FormData) {
+  const supabase = await createClient()
+  const name = (formData.get('name') as string).trim()
+  if (!name) return { error: 'Il nome è obbligatorio' }
+  const commPct   = formData.get('commission_pct')   as string
+  const commFixed = formData.get('commission_fixed')  as string
+  const settlement = formData.get('settlement_days') as string
+  const { error } = await supabase.from('cash_channels').insert({
+    name,
+    default_commission_pct:         commPct   ? parseFloat(commPct) / 100   : 0,
+    default_commission_fixed_cents: commFixed ? Math.round(parseFloat(commFixed) * 100) : 0,
+    avg_settlement_days:            settlement ? parseInt(settlement) : 0,
+  })
+  if (error) return { error: error.message }
+  revalidatePath('/settings')
+  return { success: true }
+}
+
 export async function toggleCompanyChannel(
   companyId: string,
   channelId: string,

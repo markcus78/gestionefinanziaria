@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Settings2, X } from 'lucide-react'
-import { toggleCompanyChannel, updateChannelConfig } from './actions'
+import { Settings2, X, Plus } from 'lucide-react'
+import { toggleCompanyChannel, updateChannelConfig, createCashChannel } from './actions'
 import { WEEKDAYS } from '@/lib/channel-utils'
 import type { Company, CashChannel, CompanyCashChannel } from '@/lib/types/database'
 
@@ -48,6 +48,35 @@ export function ChannelsSection({
   const [editing, setEditing] = useState<EditingState | null>(null)
   const [isPending, startTransition] = useTransition()
   const [formError, setFormError] = useState<string | null>(null)
+
+  const [newChannelOpen, setNewChannelOpen] = useState(false)
+  const [newName, setNewName]               = useState('')
+  const [newCommPct, setNewCommPct]         = useState('')
+  const [newCommFixed, setNewCommFixed]     = useState('')
+  const [newSettlement, setNewSettlement]   = useState('')
+  const [newError, setNewError]             = useState<string | null>(null)
+  const [newPending, startNewTransition]    = useTransition()
+
+  function openNewChannel() {
+    setNewName(''); setNewCommPct(''); setNewCommFixed(''); setNewSettlement('')
+    setNewError(null); setNewChannelOpen(true)
+  }
+
+  function handleCreateChannel() {
+    if (!newName.trim()) return setNewError('Il nome è obbligatorio')
+    setNewError(null)
+    const fd = new FormData()
+    fd.set('name', newName.trim())
+    if (newCommPct)    fd.set('commission_pct',   newCommPct)
+    if (newCommFixed)  fd.set('commission_fixed',  newCommFixed)
+    if (newSettlement) fd.set('settlement_days',   newSettlement)
+    startNewTransition(async () => {
+      const res = await createCashChannel(null, fd)
+      if (res?.error) return setNewError(res.error)
+      setNewChannelOpen(false)
+      router.refresh()
+    })
+  }
 
   const company = companies.find((c) => c.id === activeCompany)
 
@@ -123,11 +152,20 @@ export function ChannelsSection({
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-base font-medium text-zinc-100">Canali di Incasso</h2>
-        <p className="text-sm text-zinc-400 mt-0.5">
-          Abilita i canali per ogni società e configura commissioni, settlement e payout
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-base font-medium text-zinc-100">Canali di Incasso</h2>
+          <p className="text-sm text-zinc-400 mt-0.5">
+            Abilita i canali per ogni società e configura commissioni, settlement e payout
+          </p>
+        </div>
+        <button
+          onClick={openNewChannel}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm rounded-lg transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Nuovo canale
+        </button>
       </div>
 
       {/* Tabs società */}
@@ -382,6 +420,103 @@ export function ChannelsSection({
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
               >
                 {isPending ? 'Salvataggio…' : 'Salva'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal nuovo canale */}
+      {newChannelOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-sm shadow-xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <h3 className="text-sm font-semibold text-zinc-100">Nuovo canale di incasso</h3>
+              <button
+                onClick={() => setNewChannelOpen(false)}
+                className="text-zinc-500 hover:text-zinc-200 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Nome canale *</label>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  placeholder="Es. Klarna, Nexi, Satispay Business…"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Commissione %</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={newCommPct}
+                      onChange={e => setNewCommPct(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 pr-6 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">%</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Commissione fissa</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={newCommFixed}
+                      onChange={e => setNewCommFixed(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 pr-6 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">€</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Giorni settlement (0 = immediato)</label>
+                <div className="relative w-40">
+                  <input
+                    type="number"
+                    min="0"
+                    value={newSettlement}
+                    onChange={e => setNewSettlement(e.target.value)}
+                    placeholder="0"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 pr-8 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">gg</span>
+                </div>
+              </div>
+
+              {newError && <p className="text-xs text-red-400">{newError}</p>}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-zinc-800">
+              <button
+                onClick={() => setNewChannelOpen(false)}
+                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleCreateChannel}
+                disabled={newPending}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
+              >
+                {newPending ? 'Creazione…' : 'Crea canale'}
               </button>
             </div>
           </div>
