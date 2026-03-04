@@ -199,6 +199,19 @@ export type IntercompanyNetting = {
   created_at: string
 }
 
+export type AccessLogEventType = 'login' | 'logout'
+
+export type AccessLog = {
+  id: string
+  user_id: string | null
+  user_email: string
+  user_role: string | null
+  event_type: AccessLogEventType
+  ip_address: string | null
+  user_agent: string | null
+  created_at: string
+}
+
 export type ReportType = 'bug' | 'domanda' | 'integrazione' | 'altro'
 export type ReportStatus = 'aperta' | 'in_corso' | 'scartata' | 'risolta'
 

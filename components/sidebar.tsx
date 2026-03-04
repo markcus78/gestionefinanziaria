@@ -17,6 +17,7 @@ import {
   LogOut,
   Flag,
   MessageSquare,
+  ShieldCheck,
 } from 'lucide-react'
 import { signOut } from '@/app/login/actions'
 
@@ -93,6 +94,21 @@ export function Sidebar({ unreadCount, isStrategic }: SidebarProps) {
                 {unreadCount}
               </span>
             )}
+          </Link>
+        )}
+
+        {/* Audit Log — solo strategic */}
+        {isStrategic && (
+          <Link
+            href="/audit"
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+              pathname === '/audit' || pathname.startsWith('/audit/')
+                ? 'bg-indigo-600 text-white'
+                : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4 shrink-0" />
+            Audit Log
           </Link>
         )}
       </nav>

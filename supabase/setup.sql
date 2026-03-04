@@ -362,6 +362,32 @@ FROM companies c, cash_channels ch
 WHERE c.code = 'APPIAE' AND ch.name IN ('Stripe', 'AlmaPay', 'SumUp', 'Satispay')
 ON CONFLICT (company_id, channel_id) DO NOTHING;
 
+-- ─── FASE 9: AUDIT LOG ACCESSI ──────────────────────────────
+
+CREATE TABLE IF NOT EXISTS access_logs (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  user_email TEXT NOT NULL,
+  user_role  TEXT,
+  event_type TEXT NOT NULL CHECK (event_type IN ('login', 'logout')),
+  ip_address TEXT,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_logs_created_at ON access_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_access_logs_user_id ON access_logs(user_id);
+
+ALTER TABLE access_logs ENABLE ROW LEVEL SECURITY;
+
+-- Solo strategic può leggere tutti i log
+CREATE POLICY "read_strategic" ON access_logs FOR SELECT TO authenticated
+  USING (get_user_role() = 'strategic');
+
+-- Tutti gli autenticati possono inserire
+CREATE POLICY "insert_authenticated" ON access_logs FOR INSERT TO authenticated
+  WITH CHECK (true);
+
 -- ─── FASE 7: SEGNALAZIONI INTERNE ───────────────────────────
 
 CREATE TABLE IF NOT EXISTS reports (
