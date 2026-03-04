@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { headers } from 'next/headers'
+import { headers, cookies } from 'next/headers'
 
 export async function signIn(_: unknown, formData: FormData) {
   const email = formData.get('email') as string
@@ -35,6 +35,9 @@ export async function signIn(_: unknown, formData: FormData) {
     user_agent: ua,
   })
 
+  const cookieStore = await cookies()
+  cookieStore.set('wt_session', '1', { httpOnly: true, sameSite: 'lax', path: '/' })
+
   redirect('/dashboard')
 }
 
@@ -58,6 +61,9 @@ export async function signOut() {
       user_agent: ua,
     })
   }
+
+  const cookieStore = await cookies()
+  cookieStore.delete('wt_session')
 
   await supabase.auth.signOut()
   redirect('/login')
