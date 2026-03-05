@@ -20,20 +20,40 @@ function StatusBadge({ status }: { status: PaymentStatus }) {
   return <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>
 }
 
+function formatDate(dateStr: string, today: string) {
+  const d = new Date(dateStr + 'T00:00:00')
+  const t = new Date(today + 'T00:00:00')
+  const diff = Math.round((d.getTime() - t.getTime()) / 86400000)
+  if (diff === -1) return 'Ieri'
+  if (diff === 0) return 'Oggi'
+  if (diff === 1) return 'Domani'
+  return d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+function dateCellCls(dateStr: string, today: string) {
+  if (dateStr < today) return 'text-red-400 font-semibold'
+  if (dateStr === today) return 'text-amber-400 font-semibold'
+  return 'text-zinc-400'
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient()
   const today = new Date().toISOString().split('T')[0]
 
-  const [companiesResult, todayResult, overdueResult] = await Promise.all([
+  const dateFrom = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0]
+  const dateTo   = new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0]
+
+  const [companiesResult, windowResult, overdueResult] = await Promise.all([
     supabase.from('companies').select('id, code, name').eq('is_active', true).order('code'),
     supabase
       .from('payment_schedule')
-      .select('id, company_id, supplier_name, account_description, amount_cents, status, priority_score, priority_override, document_type, document_number')
-      .eq('due_date', today)
+      .select('id, company_id, supplier_name, account_description, amount_cents, status, priority_score, priority_override, document_type, document_number, due_date')
+      .gte('due_date', dateFrom)
+      .lte('due_date', dateTo)
       .eq('entry_type', 'accounting')
       .eq('flow_type', 'out')
       .not('status', 'in', '("paid","cancelled")')
-      .order('priority_score', { ascending: false, nullsFirst: false }),
+      .order('due_date', { ascending: true }),
     supabase
       .from('payment_schedule')
       .select('id, amount_cents')
@@ -44,11 +64,11 @@ export default async function DashboardPage() {
   ])
 
   const companies = companiesResult.data ?? []
-  const todayPayments = todayResult.data ?? []
+  const windowPayments = windowResult.data ?? []
   const overdueItems = overdueResult.data ?? []
 
   const companyMap = Object.fromEntries(companies.map(c => [c.id, c.code]))
-  const todayTotal = todayPayments.reduce((s, r) => s + Math.abs(r.amount_cents as number), 0)
+  const windowTotal = windowPayments.reduce((s, r) => s + Math.abs(r.amount_cents as number), 0)
   const overdueTotal = overdueItems.reduce((s, r) => s + Math.abs(r.amount_cents as number), 0)
 
   const todayFormatted = new Date(today + 'T00:00:00').toLocaleDateString('it-IT', {
@@ -76,27 +96,28 @@ export default async function DashboardPage() {
         </Link>
       )}
 
-      {/* Tabella pagamenti di oggi */}
+      {/* Tabella pagamenti ±3 giorni */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
-          <h2 className="text-sm font-semibold text-zinc-100">Pagamenti di oggi</h2>
-          {todayPayments.length > 0 && (
+          <h2 className="text-sm font-semibold text-zinc-100">Pagamenti in scadenza <span className="text-zinc-500 font-normal">(±3 giorni)</span></h2>
+          {windowPayments.length > 0 && (
             <span className="text-xs text-zinc-400">
-              {todayPayments.length} voci · totale <span className="text-red-400 font-medium">{formatEur(todayTotal)}</span>
+              {windowPayments.length} voci · totale <span className="text-red-400 font-medium">{formatEur(windowTotal)}</span>
             </span>
           )}
         </div>
 
-        {todayPayments.length === 0 ? (
+        {windowPayments.length === 0 ? (
           <div className="flex items-center gap-3 px-4 py-8 justify-center">
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            <p className="text-sm text-zinc-500">Nessun pagamento in scadenza oggi</p>
+            <p className="text-sm text-zinc-500">Nessun pagamento in scadenza nel periodo</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-zinc-800 text-zinc-400">
+                  <th className="text-left px-4 py-2.5 font-medium">Data</th>
                   <th className="text-left px-4 py-2.5 font-medium">Soc.</th>
                   <th className="text-left px-4 py-2.5 font-medium">Fornitore / Descrizione</th>
                   <th className="text-left px-4 py-2.5 font-medium">Documento</th>
@@ -105,8 +126,11 @@ export default async function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {todayPayments.map(item => (
+                {windowPayments.map(item => (
                   <tr key={item.id} className="border-b border-zinc-800/40 last:border-0 hover:bg-zinc-800/20">
+                    <td className={`px-4 py-2.5 tabular-nums ${dateCellCls(item.due_date as string, today)}`}>
+                      {formatDate(item.due_date as string, today)}
+                    </td>
                     <td className="px-4 py-2.5">
                       <span className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono">
                         {companyMap[item.company_id as string] ?? '—'}
@@ -129,9 +153,9 @@ export default async function DashboardPage() {
               </tbody>
               <tfoot>
                 <tr className="border-t border-zinc-700 bg-zinc-800/50">
-                  <td colSpan={3} className="px-4 py-2.5 text-xs text-zinc-400 font-medium">Totale</td>
+                  <td colSpan={4} className="px-4 py-2.5 text-xs text-zinc-400 font-medium">Totale</td>
                   <td className="px-4 py-2.5 text-right text-xs font-semibold tabular-nums text-red-400">
-                    -{formatEur(todayTotal)}
+                    -{formatEur(windowTotal)}
                   </td>
                   <td />
                 </tr>
