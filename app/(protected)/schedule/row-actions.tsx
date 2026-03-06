@@ -16,7 +16,7 @@ type Props = { item: PaymentScheduleItem }
 
 export default function RowActions({ item }: Props) {
   const [open, setOpen] = useState(false)
-  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
+  const [menuPos, setMenuPos] = useState<{ top?: number; bottom?: number; right: number } | null>(null)
   const [showPaid, setShowPaid] = useState(false)
   const [showPostpone, setShowPostpone] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -41,7 +41,13 @@ export default function RowActions({ item }: Props) {
   function handleToggle() {
     if (!open && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect()
-      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+      const right = window.innerWidth - rect.right
+      const spaceBelow = window.innerHeight - rect.bottom
+      if (spaceBelow < 180) {
+        setMenuPos({ bottom: window.innerHeight - rect.top + 4, right })
+      } else {
+        setMenuPos({ top: rect.bottom + 4, right })
+      }
     }
     setOpen(o => !o)
   }
@@ -80,7 +86,7 @@ export default function RowActions({ item }: Props) {
       {open && menuPos && (
         <div
           ref={dropdownRef}
-          style={{ top: menuPos.top, right: menuPos.right }}
+          style={{ top: menuPos.top, bottom: menuPos.bottom, right: menuPos.right }}
           className="fixed z-50 min-w-40 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1 text-sm">
           {canSchedule && (
             <button
