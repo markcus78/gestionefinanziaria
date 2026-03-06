@@ -16,23 +16,35 @@ type Props = { item: PaymentScheduleItem }
 
 export default function RowActions({ item }: Props) {
   const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
   const [showPaid, setShowPaid] = useState(false)
   const [showPostpone, setShowPostpone] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
 
   // Close dropdown on outside click
   useEffect(() => {
     if (!open) return
     function handle(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
+      const target = e.target as Node
+      const inContainer = containerRef.current?.contains(target)
+      const inDropdown = dropdownRef.current?.contains(target)
+      if (!inContainer && !inDropdown) setOpen(false)
     }
     document.addEventListener('mousedown', handle)
     return () => document.removeEventListener('mousedown', handle)
   }, [open])
+
+  function handleToggle() {
+    if (!open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+    }
+    setOpen(o => !o)
+  }
 
   const canMarkPaid = ['pending', 'scheduled', 'postponed'].includes(item.status)
   const canPostpone = ['pending', 'scheduled'].includes(item.status)
@@ -49,12 +61,13 @@ export default function RowActions({ item }: Props) {
   }
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative" ref={containerRef}>
       {error && (
         <span className="text-xs text-red-400 mr-2">{error}</span>
       )}
       <button
-        onClick={() => setOpen(o => !o)}
+        ref={buttonRef}
+        onClick={handleToggle}
         disabled={isPending}
         className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors"
       >
@@ -64,8 +77,11 @@ export default function RowActions({ item }: Props) {
         }
       </button>
 
-      {open && (
-        <div className="absolute right-0 top-7 z-20 min-w-40 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1 text-sm">
+      {open && menuPos && (
+        <div
+          ref={dropdownRef}
+          style={{ top: menuPos.top, right: menuPos.right }}
+          className="fixed z-50 min-w-40 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1 text-sm">
           {canSchedule && (
             <button
               className="flex items-center gap-2 w-full px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
