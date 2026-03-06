@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useTransition, useRef, useEffect } from 'react'
-import { MoreHorizontal, CreditCard, Clock, CalendarCheck, RotateCcw, Loader2 } from 'lucide-react'
+import { useState, useTransition } from 'react'
+import { CreditCard, Clock, CalendarCheck, RotateCcw, Loader2 } from 'lucide-react'
 import { markPaid, markPostponed, markScheduled, resetToPending } from './actions'
 import type { PaymentScheduleItem } from '@/lib/types/database'
 
@@ -12,54 +12,32 @@ function formatEur(cents: number) {
   return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100)
 }
 
+function Tooltip({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="relative group">
+      {children}
+      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-1.5 py-0.5 bg-zinc-700 text-zinc-100 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-10 transition-opacity">
+        {label}
+      </span>
+    </div>
+  )
+}
+
 type Props = { item: PaymentScheduleItem }
 
 export default function RowActions({ item }: Props) {
-  const [open, setOpen] = useState(false)
-  const [menuPos, setMenuPos] = useState<{ top?: number; bottom?: number; right: number } | null>(null)
   const [showPaid, setShowPaid] = useState(false)
   const [showPostpone, setShowPostpone] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    if (!open) return
-    function handle(e: MouseEvent) {
-      const target = e.target as Node
-      const inContainer = containerRef.current?.contains(target)
-      const inDropdown = dropdownRef.current?.contains(target)
-      if (!inContainer && !inDropdown) setOpen(false)
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [open])
-
-  function handleToggle() {
-    if (!open && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect()
-      const right = window.innerWidth - rect.right
-      const spaceBelow = window.innerHeight - rect.bottom
-      if (spaceBelow < 180) {
-        setMenuPos({ bottom: window.innerHeight - rect.top + 4, right })
-      } else {
-        setMenuPos({ top: rect.bottom + 4, right })
-      }
-    }
-    setOpen(o => !o)
-  }
 
   const canMarkPaid = ['pending', 'scheduled', 'postponed'].includes(item.status)
   const canPostpone = ['pending', 'scheduled'].includes(item.status)
   const canSchedule = ['pending', 'postponed'].includes(item.status)
-  const canReset = ['paid', 'scheduled', 'postponed'].includes(item.status)
+  const canReset    = ['paid', 'scheduled', 'postponed'].includes(item.status)
 
   function run(fn: () => Promise<{ error?: string; success?: boolean }>) {
     setError(null)
-    setOpen(false)
     startTransition(async () => {
       const res = await fn()
       if (res.error) setError(res.error)
@@ -67,70 +45,57 @@ export default function RowActions({ item }: Props) {
   }
 
   return (
-    <div className="relative" ref={containerRef}>
-      {error && (
-        <span className="text-xs text-red-400 mr-2">{error}</span>
-      )}
-      <button
-        ref={buttonRef}
-        onClick={handleToggle}
-        disabled={isPending}
-        className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition-colors"
-      >
-        {isPending
-          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          : <MoreHorizontal className="w-3.5 h-3.5" />
-        }
-      </button>
+    <div className="flex items-center gap-0.5">
+      {error && <span className="text-xs text-red-400 mr-1">{error}</span>}
 
-      {open && menuPos && (
-        <div
-          ref={dropdownRef}
-          style={{ top: menuPos.top, bottom: menuPos.bottom, right: menuPos.right }}
-          className="fixed z-50 min-w-40 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1 text-sm">
-          {canSchedule && (
-            <button
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-              onClick={() => run(() => markScheduled(item.id))}
-            >
-              <CalendarCheck className="w-3.5 h-3.5 text-blue-400" />
-              Programma
-            </button>
-          )}
-          {canMarkPaid && (
-            <button
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-              onClick={() => { setOpen(false); setShowPaid(true) }}
-            >
-              <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
-              Segna pagato
-            </button>
-          )}
-          {canPostpone && (
-            <button
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-              onClick={() => { setOpen(false); setShowPostpone(true) }}
-            >
-              <Clock className="w-3.5 h-3.5 text-amber-400" />
-              Posticipa
-            </button>
-          )}
-          {canReset && (
-            <>
-              <div className="my-1 border-t border-zinc-800" />
-              <button
-                className="flex items-center gap-2 w-full px-3 py-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-                onClick={() => run(() => resetToPending(item.id))}
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Ripristina
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      {isPending
+        ? <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-500 mx-1" />
+        : (
+          <>
+            {canSchedule && (
+              <Tooltip label="Programma">
+                <button
+                  onClick={() => run(() => markScheduled(item.id))}
+                  className="p-1 text-blue-400 hover:bg-zinc-800 rounded transition-colors"
+                >
+                  <CalendarCheck className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip>
+            )}
+            {canMarkPaid && (
+              <Tooltip label="Segna pagato">
+                <button
+                  onClick={() => setShowPaid(true)}
+                  className="p-1 text-emerald-400 hover:bg-zinc-800 rounded transition-colors"
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip>
+            )}
+            {canPostpone && (
+              <Tooltip label="Posticipa">
+                <button
+                  onClick={() => setShowPostpone(true)}
+                  className="p-1 text-amber-400 hover:bg-zinc-800 rounded transition-colors"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip>
+            )}
+            {canReset && (
+              <Tooltip label="Ripristina">
+                <button
+                  onClick={() => run(() => resetToPending(item.id))}
+                  className="p-1 text-zinc-400 hover:bg-zinc-800 rounded transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip>
+            )}
+          </>
+        )
+      }
 
-      {/* Paid modal */}
       {showPaid && (
         <PaidModal
           item={item}
@@ -141,8 +106,6 @@ export default function RowActions({ item }: Props) {
           }}
         />
       )}
-
-      {/* Postpone modal */}
       {showPostpone && (
         <PostponeModal
           item={item}
