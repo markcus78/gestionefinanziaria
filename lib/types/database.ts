@@ -176,6 +176,9 @@ export type PaymentScheduleItem = {
   dedup_key: string
   created_at: string
   updated_at: string
+  commitment_type?: CommitmentType | null
+  recurring_template_id?: string | null
+  reference_month?: string | null
 }
 
 export type ExpenseForecast = {
@@ -209,6 +212,22 @@ export type AccessLog = {
   event_type: AccessLogEventType
   ip_address: string | null
   user_agent: string | null
+  created_at: string
+}
+
+export type CommitmentType = 'forecast' | 'salary_item' | 'collab_item' | 'tax_item' | 'manual'
+
+export type RecurringTemplate = {
+  id: string
+  company_id: string
+  name: string
+  category: 'salary' | 'collaborators' | 'tax' | 'utility' | 'other'
+  amount_cents: number | null
+  flow_type: 'in' | 'out'
+  frequency: 'monthly' | 'quarterly' | 'annual'
+  day_of_month: number
+  active: boolean
+  notes: string | null
   created_at: string
 }
 

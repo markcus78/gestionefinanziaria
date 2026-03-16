@@ -1,0 +1,79 @@
+import * as XLSX from 'xlsx'
+
+export type SalaryItem = {
+  name: string
+  amountCents: number
+}
+
+export function parseSalaryFile(buffer: ArrayBuffer): SalaryItem[] {
+  const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' })
+  const sheetName = workbook.SheetNames[0]
+  const sheet = workbook.Sheets[sheetName]
+
+  const rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    raw: true,
+    defval: null,
+  })
+
+  if (rawRows.length < 2) return []
+
+  const header = (rawRows[0] as unknown[]).map(h => String(h ?? '').toLowerCase().trim())
+
+  let nameCol = -1
+  let surnameCol = -1
+  let amountCol = -1
+
+  // Priorità a "importo netto" per la colonna importo
+  for (let i = 0; i < header.length; i++) {
+    const h = header[i]
+    if (h.includes('importo netto') || h === 'netto') { amountCol = i; break }
+  }
+
+  for (let i = 0; i < header.length; i++) {
+    const h = header[i]
+    if (h === 'cognome') surnameCol = i
+    else if (nameCol === -1 && (h === 'nome' || h.includes('nominativo') || h.includes('dipendente') || h.includes('collaboratore'))) {
+      nameCol = i
+    }
+    if (amountCol === -1 && (h.includes('importo') || h.includes('bonifico'))) amountCol = i
+  }
+
+  // Fallback: prima colonna stringa = nome, prima colonna numerica = importo
+  const firstData = rawRows[1] as unknown[]
+  if (nameCol === -1) {
+    for (let i = 0; i < firstData.length; i++) {
+      if (typeof firstData[i] === 'string' && String(firstData[i]).trim()) { nameCol = i; break }
+    }
+  }
+  if (amountCol === -1) {
+    for (let i = 0; i < firstData.length; i++) {
+      if (typeof firstData[i] === 'number' && (firstData[i] as number) > 0) { amountCol = i; break }
+    }
+  }
+
+  if (nameCol === -1 || amountCol === -1) return []
+
+  const items: SalaryItem[] = []
+
+  for (const rawRow of rawRows.slice(1) as unknown[][]) {
+    let name: string
+    if (surnameCol !== -1) {
+      const first = String(rawRow[nameCol] ?? '').trim()
+      const last  = String(rawRow[surnameCol] ?? '').trim()
+      name = [first, last].filter(Boolean).join(' ')
+    } else {
+      name = String(rawRow[nameCol] ?? '').trim()
+    }
+
+    const rawAmount = rawRow[amountCol]
+    const amount = typeof rawAmount === 'number'
+      ? rawAmount
+      : parseFloat(String(rawAmount ?? '').replace(',', '.'))
+
+    if (!name || isNaN(amount) || amount <= 0) continue
+    items.push({ name, amountCents: Math.round(amount * 100) })
+  }
+
+  return items.sort((a, b) => a.name.localeCompare(b.name, 'it'))
+}

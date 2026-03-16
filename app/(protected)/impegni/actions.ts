@@ -104,3 +104,33 @@ export async function deleteCommitment(id: string): Promise<CommitmentResult> {
   revalidatePath('/impegni')
   return { ok: true }
 }
+
+export async function createCommitmentBatch(items: CommitmentInput[]): Promise<CommitmentResult> {
+  if (!items.length) return { ok: true }
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autenticato' }
+
+  const rows = items.map(input => ({
+    company_id: input.company_id,
+    import_batch_id: null,
+    supplier_name: input.supplier_name,
+    account_description: input.account_description,
+    due_date: input.due_date,
+    amount_cents: input.amount_cents,
+    amount_in_cents:  input.flow_type === 'in'  ? Math.abs(input.amount_cents) : 0,
+    amount_out_cents: input.flow_type === 'out' ? Math.abs(input.amount_cents) : 0,
+    flow_type: input.flow_type,
+    entry_type: 'commitment' as const,
+    status: 'pending' as const,
+    document_number: 'IMP-' + crypto.randomUUID().slice(0, 8),
+    is_intercompany: false,
+    postpone_notes: input.notes,
+  }))
+
+  const { error } = await supabase.from('payment_schedule').insert(rows)
+  if (error) return { error: error.message }
+  revalidatePath('/impegni')
+  return { ok: true }
+}

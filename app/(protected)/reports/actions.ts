@@ -80,11 +80,32 @@ export async function updateReportStatus(reportId: string, status: ReportStatus)
     .from('reports')
     .update({ status, is_read: true })
     .eq('id', reportId)
-    .select('id')
+    .select('id, author_email, report_type, page, description')
   if (error) return { error: error.message }
   if (!data || data.length === 0) {
     const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
     return { error: `Aggiornamento bloccato (ruolo: ${profile?.role ?? 'non trovato'})` }
+  }
+  if (status === 'risolta') {
+    const report = data[0]
+    const apiKey = process.env.RESEND_API_KEY
+    if (apiKey && report.author_email) {
+      const typeLabel = { bug: 'Bug', domanda: 'Domanda', integrazione: 'Integrazione', altro: 'Altro' }[report.report_type as string] ?? report.report_type
+      const dateStr = new Date().toLocaleDateString('it-IT')
+      const text = `La tua segnalazione è stata risolta.\n\n[SEGNALAZIONE — ${dateStr}]\nTipo: ${typeLabel}\nPagina: ${report.page}\nDescrizione: "${report.description}"`
+      try {
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: 'GestFin <noreply@resend.wellnesstown.it>',
+            to: [report.author_email],
+            subject: `[GestFin] Segnalazione risolta: ${typeLabel} — ${report.page}`,
+            html: `<div style="font-family:monospace;background:#18181b;color:#e4e4e7;padding:16px;border-radius:8px;white-space:pre-wrap">${text}</div><p style="color:#71717a;font-size:12px;margin-top:16px">→ <a href="https://gestionefinanziariawt.vercel.app/reports" style="color:#818cf8">Apri Segnalazioni</a></p>`,
+          }),
+        })
+      } catch { /* graceful degradation */ }
+    }
   }
   revalidatePath('/reports')
   revalidatePath('/', 'layout')
