@@ -113,7 +113,7 @@ export default async function ForecastPage({
         if (view === 'consolidated' && p.is_intercompany) return false
         return p.due_date >= start && p.due_date <= end
       })
-      .reduce((s, p) => s + (p.amount_cents ?? 0), 0)
+      .reduce((s, p) => s + Math.abs(p.amount_cents ?? 0), 0)
 
     const outflowExpenses = (expenseForecastsRaw ?? [])
       .filter(f => scopeIds.has(f.company_id) && f.year === year && f.month === month)
