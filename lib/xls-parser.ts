@@ -94,22 +94,35 @@ function parseRow(raw: unknown[]): ParsedRow | null {
     ? INTERCOMPANY_NAMES.find(n => n.toLowerCase() === ragSoc.toLowerCase()) ?? null
     : null
 
+  const docType = str(raw[5]) || null
+
+  // NC (nota di credito) = entrata; FT (fattura) = uscita
+  // Sovrascrive il tipoFlusso del gestionale per garantire segno corretto
+  let flowType: 'in' | 'out' = tipoFlusso === 0 ? 'in' : 'out'
+  if (docType === 'NC') flowType = 'in'
+  else if (docType === 'FT') flowType = 'out'
+
+  const absUdc = Math.abs(importoUdc)
+  const finalAmountCents    = flowType === 'out' ? -Math.round(absUdc * 100) : Math.round(absUdc * 100)
+  const finalAmountInCents  = flowType === 'in'  ? Math.round(absUdc * 100) : 0
+  const finalAmountOutCents = flowType === 'out' ? Math.round(absUdc * 100) : 0
+
   return {
-    flow_type: tipoFlusso === 0 ? 'in' : 'out',
+    flow_type: flowType,
     entry_type: origFlusso === 'Scad' ? 'accounting' : 'commitment',
     due_date: dueDate,
     document_date: excelDateToISO(Number(raw[3])),
     document_number: str(raw[4]) || null,
-    document_type: str(raw[5]) || null,
+    document_type: docType,
     supplier_code: supplierCode,
     supplier_name: ragSoc || null,
     account_code: str(raw[8]) || null,
     account_description: str(raw[9]) || null,
     payment_method: cleanPaymentMethod(raw[14]),
     bank_description: str(raw[12]) || null,
-    amount_cents: Math.round(importoUdc * 100),
-    amount_in_cents: Math.round(impEntrate * 100),
-    amount_out_cents: Math.round(impUscite * 100),
+    amount_cents: finalAmountCents,
+    amount_in_cents: finalAmountInCents,
+    amount_out_cents: finalAmountOutCents,
     is_intercompany: isIntercompany,
     counterpart_legal_name: counterpartLegalName,
   }
