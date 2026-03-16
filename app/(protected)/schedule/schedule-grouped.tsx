@@ -96,6 +96,104 @@ function buildGroups(rows: PaymentScheduleItem[]): YearGroup[] {
   return years
 }
 
+function RowsTable({
+  rows,
+  today,
+  showDate,
+  navigateSupplier,
+}: {
+  rows: PaymentScheduleItem[]
+  today: string
+  showDate: boolean
+  navigateSupplier: (item: PaymentScheduleItem) => void
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-zinc-800 bg-zinc-900/80">
+            {showDate && <th className="text-left px-3 py-2 text-zinc-500 font-medium">Data</th>}
+            <th className="text-left px-3 py-2 text-zinc-500 font-medium">P</th>
+            <th className="text-left px-3 py-2 text-zinc-500 font-medium">Fornitore</th>
+            <th className="text-left px-3 py-2 text-zinc-500 font-medium">Documento</th>
+            <th className="text-right px-3 py-2 text-zinc-500 font-medium">Importo</th>
+            <th className="text-left px-3 py-2 text-zinc-500 font-medium">Stato</th>
+            <th className="text-left px-3 py-2 text-zinc-500 font-medium">Tipo</th>
+            <th className="px-3 py-2" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(item => {
+            const isOverdue = showDate && item.due_date < today
+            const isNear    = showDate && !isOverdue && item.due_date <= (() => {
+              const d = new Date(today); d.setDate(d.getDate() + 7); return d.toISOString().split('T')[0]
+            })()
+            const dateClass = isOverdue ? 'text-red-400' : isNear ? 'text-amber-400' : 'text-zinc-300'
+            return (
+              <tr key={item.id} className="border-b border-zinc-800/40 last:border-0 hover:bg-zinc-800/20">
+                {showDate && (
+                  <td className={`px-3 py-2 font-medium tabular-nums ${dateClass}`}>
+                    {new Date(item.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
+                  </td>
+                )}
+                <td className="px-3 py-2">
+                  <PriorityBadge score={item.priority_override ?? item.priority_score} />
+                </td>
+                <td className="px-3 py-2 max-w-44">
+                  {item.supplier_name ? (
+                    <button
+                      onClick={() => navigateSupplier(item)}
+                      className="text-zinc-200 block truncate hover:text-indigo-300 hover:underline text-left w-full"
+                    >
+                      {item.supplier_name}
+                    </button>
+                  ) : item.account_description ? (
+                    <span className="text-zinc-400 block truncate italic">{item.account_description}</span>
+                  ) : (
+                    <span className="text-zinc-600">—</span>
+                  )}
+                  {item.is_intercompany && <span className="text-amber-400 text-xs">IC</span>}
+                </td>
+                <td className="px-3 py-2 text-zinc-400">
+                  {item.document_type && (
+                    <span className="px-1 py-0.5 bg-zinc-800 rounded text-zinc-300 mr-1">{item.document_type}</span>
+                  )}
+                  {item.document_number ? (
+                    <span className="font-mono">{item.document_number}</span>
+                  ) : item.account_code && !item.supplier_name ? (
+                    <span className="text-zinc-600 font-mono">{item.account_code}</span>
+                  ) : (
+                    <span className="text-zinc-600">—</span>
+                  )}
+                </td>
+                <td className={`px-3 py-2 text-right font-medium tabular-nums ${item.flow_type === 'out' ? 'text-red-400' : 'text-emerald-400'}`}>
+                  {item.flow_type === 'out' ? '-' : '+'}{formatEur(Math.abs(item.amount_cents))}
+                </td>
+                <td className="px-3 py-2">
+                  <StatusBadge status={item.status} />
+                  {item.paid_date && (
+                    <span className="text-zinc-500 ml-1">
+                      {new Date(item.paid_date + 'T00:00:00').toLocaleDateString('it-IT')}
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  <span className={`px-1.5 py-0.5 rounded text-xs ${item.entry_type === 'accounting' ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'}`}>
+                    {item.entry_type === 'accounting' ? 'cont.' : 'imp.'}
+                  </span>
+                </td>
+                <td className="px-3 py-2">
+                  <RowActions item={item} />
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export default function ScheduleGrouped({ rows, today }: Props) {
   const currentYear  = parseInt(today.slice(0, 4))
   const currentMonth = parseInt(today.slice(5, 7))
@@ -103,6 +201,8 @@ export default function ScheduleGrouped({ rows, today }: Props) {
   const router   = useRouter()
   const pathname = usePathname()
   const sp       = useSearchParams()
+
+  const groupBy = (sp.get('groupBy') ?? 'day') as 'year' | 'month' | 'day'
 
   const navigateSupplier = useCallback((item: PaymentScheduleItem) => {
     const params = new URLSearchParams(sp.toString())
@@ -148,6 +248,93 @@ export default function ScheduleGrouped({ rows, today }: Props) {
 
   if (groups.length === 0) return null
 
+  // ── groupBy='year' ──────────────────────────────────────────────────────────
+  if (groupBy === 'year') {
+    return (
+      <div className="space-y-2">
+        {groups.map(yg => {
+          const yearOpen = openYears.has(yg.year)
+          const allYearRows = yg.months.flatMap(m => m.days.flatMap(d => d.rows))
+          return (
+            <div key={yg.year} className="bg-zinc-800 border border-zinc-700 rounded-lg overflow-hidden">
+              <button
+                onClick={() => toggleYear(yg.year)}
+                className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-zinc-700/40 transition-colors"
+              >
+                <ChevronRight className={`w-4 h-4 text-zinc-400 transition-transform ${yearOpen ? 'rotate-90' : ''}`} />
+                <span className="font-semibold text-zinc-100 text-sm">{yg.year}</span>
+                <SummaryLine rows={allYearRows} />
+                <span className="ml-auto text-xs text-zinc-500">{allYearRows.length} voci</span>
+              </button>
+              {yearOpen && (
+                <div className="border-t border-zinc-700 bg-zinc-900">
+                  <RowsTable rows={allYearRows} today={today} showDate navigateSupplier={navigateSupplier} />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  // ── groupBy='month' ─────────────────────────────────────────────────────────
+  if (groupBy === 'month') {
+    return (
+      <div className="space-y-2">
+        {groups.map(yg => {
+          const yearOpen = openYears.has(yg.year)
+          const allYearRows = yg.months.flatMap(m => m.days.flatMap(d => d.rows))
+          return (
+            <div key={yg.year} className="bg-zinc-800 border border-zinc-700 rounded-lg overflow-hidden">
+              <button
+                onClick={() => toggleYear(yg.year)}
+                className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-zinc-700/40 transition-colors"
+              >
+                <ChevronRight className={`w-4 h-4 text-zinc-400 transition-transform ${yearOpen ? 'rotate-90' : ''}`} />
+                <span className="font-semibold text-zinc-100 text-sm">{yg.year}</span>
+                <SummaryLine rows={allYearRows} />
+                <span className="ml-auto text-xs text-zinc-500">{allYearRows.length} voci</span>
+              </button>
+
+              {yearOpen && (
+                <div className="border-t border-zinc-700">
+                  {yg.months.map(mg => {
+                    const monthKey  = `${mg.year}-${String(mg.month).padStart(2,'0')}`
+                    const monthOpen = openMonths.has(monthKey)
+                    const allMonthRows = mg.days.flatMap(d => d.rows)
+                    return (
+                      <div key={monthKey} className="border-b border-zinc-700/50 last:border-0">
+                        <button
+                          onClick={() => toggleMonth(monthKey)}
+                          className="w-full flex items-center gap-2 px-4 pl-8 py-2.5 text-left border-l-2 border-indigo-500/40 hover:bg-zinc-700/30 transition-colors"
+                        >
+                          <ChevronRight className={`w-3.5 h-3.5 text-zinc-400 transition-transform ${monthOpen ? 'rotate-90' : ''}`} />
+                          <span className="font-medium text-zinc-200 text-sm">
+                            {MONTH_NAMES[mg.month - 1]} {mg.year}
+                          </span>
+                          <SummaryLine rows={allMonthRows} compact />
+                          <span className="ml-auto text-xs text-zinc-500">{allMonthRows.length} voci</span>
+                        </button>
+
+                        {monthOpen && (
+                          <div className="bg-zinc-900 border-l border-zinc-700 ml-4">
+                            <RowsTable rows={allMonthRows} today={today} showDate navigateSupplier={navigateSupplier} />
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  // ── groupBy='day' (default) ─────────────────────────────────────────────────
   return (
     <div className="space-y-2">
       {groups.map(yg => {
@@ -214,76 +401,7 @@ export default function ScheduleGrouped({ rows, today }: Props) {
 
                                 {dayOpen && (
                                   <div className="bg-zinc-900 border-l border-zinc-700 ml-4">
-                                    <div className="overflow-x-auto">
-                                      <table className="w-full text-xs">
-                                        <thead>
-                                          <tr className="border-b border-zinc-800 bg-zinc-900/80">
-                                            <th className="text-left px-3 py-2 text-zinc-500 font-medium">P</th>
-                                            <th className="text-left px-3 py-2 text-zinc-500 font-medium">Fornitore</th>
-                                            <th className="text-left px-3 py-2 text-zinc-500 font-medium">Documento</th>
-                                            <th className="text-right px-3 py-2 text-zinc-500 font-medium">Importo</th>
-                                            <th className="text-left px-3 py-2 text-zinc-500 font-medium">Stato</th>
-                                            <th className="text-left px-3 py-2 text-zinc-500 font-medium">Tipo</th>
-                                            <th className="px-3 py-2" />
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {dg.rows.map(item => (
-                                            <tr key={item.id} className="border-b border-zinc-800/40 last:border-0 hover:bg-zinc-800/20">
-                                              <td className="px-3 py-2">
-                                                <PriorityBadge score={item.priority_override ?? item.priority_score} />
-                                              </td>
-                                              <td className="px-3 py-2 max-w-44">
-                                                {item.supplier_name ? (
-                                                  <button
-                                                    onClick={() => navigateSupplier(item)}
-                                                    className="text-zinc-200 block truncate hover:text-indigo-300 hover:underline text-left w-full"
-                                                  >
-                                                    {item.supplier_name}
-                                                  </button>
-                                                ) : item.account_description ? (
-                                                  <span className="text-zinc-400 block truncate italic">{item.account_description}</span>
-                                                ) : (
-                                                  <span className="text-zinc-600">—</span>
-                                                )}
-                                                {item.is_intercompany && <span className="text-amber-400 text-xs">IC</span>}
-                                              </td>
-                                              <td className="px-3 py-2 text-zinc-400">
-                                                {item.document_type && (
-                                                  <span className="px-1 py-0.5 bg-zinc-800 rounded text-zinc-300 mr-1">{item.document_type}</span>
-                                                )}
-                                                {item.document_number ? (
-                                                  <span className="font-mono">{item.document_number}</span>
-                                                ) : item.account_code && !item.supplier_name ? (
-                                                  <span className="text-zinc-600 font-mono">{item.account_code}</span>
-                                                ) : (
-                                                  <span className="text-zinc-600">—</span>
-                                                )}
-                                              </td>
-                                              <td className={`px-3 py-2 text-right font-medium tabular-nums ${item.flow_type === 'out' ? 'text-red-400' : 'text-emerald-400'}`}>
-                                                {item.flow_type === 'out' ? '-' : '+'}{formatEur(Math.abs(item.amount_cents))}
-                                              </td>
-                                              <td className="px-3 py-2">
-                                                <StatusBadge status={item.status} />
-                                                {item.paid_date && (
-                                                  <span className="text-zinc-500 ml-1">
-                                                    {new Date(item.paid_date + 'T00:00:00').toLocaleDateString('it-IT')}
-                                                  </span>
-                                                )}
-                                              </td>
-                                              <td className="px-3 py-2">
-                                                <span className={`px-1.5 py-0.5 rounded text-xs ${item.entry_type === 'accounting' ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'}`}>
-                                                  {item.entry_type === 'accounting' ? 'cont.' : 'imp.'}
-                                                </span>
-                                              </td>
-                                              <td className="px-3 py-2">
-                                                <RowActions item={item} />
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
+                                    <RowsTable rows={dg.rows} today={today} showDate={false} navigateSupplier={navigateSupplier} />
                                   </div>
                                 )}
                               </div>
