@@ -1458,7 +1458,7 @@ function SalarySubSection({
 
 const TABS = [
   { value: 'commitments', label: 'Impegni',  icon: Calendar },
-  { value: 'templates',   label: 'Template', icon: Repeat },
+  { value: 'templates',   label: 'Costi ricorrenti', icon: Repeat },
   { value: 'salary',      label: 'Stipendi', icon: Users },
 ]
 
