@@ -1,11 +1,12 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { useCallback, useState, useTransition, useRef } from 'react'
+import { useCallback, useState, useTransition, useRef, useEffect } from 'react'
 import {
   Plus, X, Pencil, Ban, Trash2, Check, Calendar,
-  Repeat, Users, Upload, RefreshCw, ListPlus,
+  Repeat, Users, Upload, RefreshCw, ListPlus, Scale,
 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 import { createCommitment, updateCommitment, cancelCommitment, deleteCommitment, createCommitmentBatch } from './actions'
 import type { CommitmentInput } from './actions'
 import { createTemplate, updateTemplate, deleteTemplate, generateMonth } from './templates-actions'
@@ -1453,13 +1454,215 @@ function SalarySubSection({
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ReconciliationSection
+// ────────────────────────────────────────────────────────────────────────────
+
+function ReconciliationSection({
+  companies,
+}: {
+  companies: Pick<Company, 'id' | 'code' | 'name'>[]
+}) {
+  const router = useRouter()
+  const [, startTransition] = useTransition()
+
+  const [companyId, setCompanyId] = useState(companies[0]?.id ?? '')
+  const [month, setMonth]         = useState(currentYearMonth())
+  const [commitments, setCommitments] = useState<PaymentScheduleItem[]>([])
+  const [accounting,  setAccounting]  = useState<PaymentScheduleItem[]>([])
+  const [loading, setLoading] = useState(false)
+
+  async function fetchData(cId: string, m: string) {
+    if (!cId || !m) return
+    setLoading(true)
+    const supabase = createClient()
+    const [year, mo] = m.split('-').map(Number)
+    const dateFrom = `${m}-01`
+    const dateTo   = `${m}-${String(new Date(year, mo, 0).getDate()).padStart(2, '0')}`
+
+    const [{ data: c }, { data: a }] = await Promise.all([
+      supabase
+        .from('payment_schedule')
+        .select('*')
+        .eq('company_id', cId)
+        .eq('entry_type', 'commitment')
+        .eq('flow_type', 'out')
+        .in('status', ['pending', 'scheduled'])
+        .gte('due_date', dateFrom)
+        .lte('due_date', dateTo)
+        .order('due_date'),
+      supabase
+        .from('payment_schedule')
+        .select('*')
+        .eq('company_id', cId)
+        .eq('entry_type', 'accounting')
+        .eq('flow_type', 'out')
+        .not('status', 'in', '("paid","cancelled")')
+        .gte('due_date', dateFrom)
+        .lte('due_date', dateTo)
+        .order('due_date'),
+    ])
+    setCommitments((c ?? []) as PaymentScheduleItem[])
+    setAccounting((a ?? []) as PaymentScheduleItem[])
+    setLoading(false)
+  }
+
+  useEffect(() => { fetchData(companyId, month) }, [companyId, month])
+
+  async function handleCancel(id: string) {
+    startTransition(async () => {
+      await cancelCommitment(id)
+      await fetchData(companyId, month)
+      router.refresh()
+    })
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Eliminare definitivamente questo impegno?')) return
+    startTransition(async () => {
+      await deleteCommitment(id)
+      await fetchData(companyId, month)
+      router.refresh()
+    })
+  }
+
+  const monthLabel      = new Date(month + '-01').toLocaleDateString('it-IT', { year: 'numeric', month: 'long' })
+  const totalCommitments = commitments.reduce((s, i) => s + Math.abs(i.amount_cents), 0)
+  const totalAccounting  = accounting.reduce((s, i) => s + Math.abs(i.amount_cents), 0)
+
+  return (
+    <div className="space-y-5">
+      {/* Selettori */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div>
+          <label className="block text-xs text-zinc-400 mb-1">Società</label>
+          <select value={companyId} onChange={e => setCompanyId(e.target.value)}
+            className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none">
+            <option value="">Seleziona...</option>
+            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-zinc-400 mb-1">Mese</label>
+          <input type="month" value={month} onChange={e => setMonth(e.target.value)}
+            className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+        </div>
+        <button onClick={() => fetchData(companyId, month)}
+          className="self-end p-2 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg" title="Ricarica">
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+
+      {!companyId ? (
+        <p className="text-zinc-500 text-sm">Seleziona una società per visualizzare la riconciliazione.</p>
+      ) : loading ? (
+        <p className="text-zinc-500 text-sm">Caricamento...</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+
+          {/* Colonna sinistra: Impegni previsti */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-200">Impegni previsti</h3>
+                <p className="text-xs text-zinc-500">{commitments.length} voci · {monthLabel}</p>
+              </div>
+              {totalCommitments > 0 && (
+                <span className="text-sm font-medium text-red-400 tabular-nums">-{formatEur(totalCommitments)}</span>
+              )}
+            </div>
+            {commitments.length === 0 ? (
+              <p className="px-4 py-8 text-zinc-600 text-xs text-center">Nessun impegno attivo per questo mese.</p>
+            ) : (
+              <div className="divide-y divide-zinc-800/50">
+                {commitments.map(item => {
+                  const ctBadge = item.commitment_type ? COMMITMENT_TYPE_BADGE[item.commitment_type] : null
+                  return (
+                    <div key={item.id} className="px-4 py-2.5 flex items-center gap-2 hover:bg-zinc-800/20">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs text-zinc-200 truncate">{item.supplier_name ?? '—'}</span>
+                          {ctBadge && (
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium shrink-0 ${ctBadge.cls}`}>
+                              {ctBadge.label}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-zinc-500 font-mono">
+                            {new Date(item.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
+                          </span>
+                          <span className="text-xs font-medium text-red-400 tabular-nums">
+                            -{formatEur(Math.abs(item.amount_cents))}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => handleCancel(item.id)}
+                          className="p-1.5 rounded text-zinc-500 hover:text-amber-400 hover:bg-zinc-700" title="Annulla impegno">
+                          <Ban className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => handleDelete(item.id)}
+                          className="p-1.5 rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-700" title="Elimina">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Colonna destra: Scadenzario */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-200">Fatture reali (scadenzario)</h3>
+                <p className="text-xs text-zinc-500">{accounting.length} voci · {monthLabel}</p>
+              </div>
+              {totalAccounting > 0 && (
+                <span className="text-sm font-medium text-red-400 tabular-nums">-{formatEur(totalAccounting)}</span>
+              )}
+            </div>
+            {accounting.length === 0 ? (
+              <p className="px-4 py-8 text-zinc-600 text-xs text-center">Nessuna fattura in scadenzario per questo mese.</p>
+            ) : (
+              <div className="divide-y divide-zinc-800/50">
+                {accounting.map(item => (
+                  <div key={item.id} className="px-4 py-2.5">
+                    <div className="text-xs text-zinc-200 truncate">{item.supplier_name ?? '—'}</div>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span className="text-xs text-zinc-500 font-mono">
+                        {new Date(item.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
+                      </span>
+                      <span className="text-xs font-medium text-red-400 tabular-nums">
+                        -{formatEur(Math.abs(item.amount_cents))}
+                      </span>
+                      {item.document_number && (
+                        <span className="text-xs text-zinc-600 truncate">{item.document_number}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Main Component
 // ────────────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { value: 'commitments', label: 'Impegni',  icon: Calendar },
-  { value: 'templates',   label: 'Costi ricorrenti', icon: Repeat },
-  { value: 'salary',      label: 'Stipendi', icon: Users },
+  { value: 'commitments',    label: 'Impegni',          icon: Calendar },
+  { value: 'templates',      label: 'Costi ricorrenti', icon: Repeat },
+  { value: 'salary',         label: 'Stipendi',         icon: Users },
+  { value: 'reconciliation', label: 'Riconciliazione',  icon: Scale },
 ]
 
 export default function ImpegniClient({ items, companies, templates }: Props) {
@@ -1510,6 +1713,9 @@ export default function ImpegniClient({ items, companies, templates }: Props) {
       )}
       {activeTab === 'salary' && (
         <SalarySection items={items} companies={companies} />
+      )}
+      {activeTab === 'reconciliation' && (
+        <ReconciliationSection companies={companies} />
       )}
     </div>
   )
