@@ -30,6 +30,13 @@ const FLOW_OPTIONS = [
   { value: 'in',  label: 'Entrate' },
 ]
 
+const COMMITMENT_TYPE_BADGE: Partial<Record<NonNullable<PaymentScheduleItem['commitment_type']>, { label: string; cls: string }>> = {
+  forecast:     { label: 'Previsione',    cls: 'bg-indigo-500/20 text-indigo-400' },
+  salary_item:  { label: 'Dipendente',   cls: 'bg-blue-500/20 text-blue-400' },
+  collab_item:  { label: 'Collaboratore', cls: 'bg-purple-500/20 text-purple-400' },
+  tax_item:     { label: 'F24',          cls: 'bg-orange-500/20 text-orange-400' },
+}
+
 const STATUS_BADGE: Record<PaymentStatus, { label: string; cls: string }> = {
   pending:   { label: 'Attivo',      cls: 'bg-amber-500/20 text-amber-400' },
   scheduled: { label: 'Programmato', cls: 'bg-blue-500/20 text-blue-400' },
@@ -489,9 +496,19 @@ function CommitmentsSection({
                         {new Date(item.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
                       </td>
                       <td className="px-3 py-2">
-                        <div className="text-zinc-200">{item.supplier_name ?? '—'}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-zinc-200">{item.supplier_name ?? '—'}</span>
+                          {item.commitment_type && COMMITMENT_TYPE_BADGE[item.commitment_type] && (
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${COMMITMENT_TYPE_BADGE[item.commitment_type]!.cls}`}>
+                              {COMMITMENT_TYPE_BADGE[item.commitment_type]!.label}
+                            </span>
+                          )}
+                        </div>
                         {item.account_description && (
                           <div className="text-zinc-500 mt-0.5">{item.account_description}</div>
+                        )}
+                        {item.reference_month && (
+                          <div className="text-zinc-600 mt-0.5 font-mono">{item.reference_month}</div>
                         )}
                         {item.postpone_notes && (
                           <div className="text-zinc-600 mt-0.5 italic">{item.postpone_notes}</div>
