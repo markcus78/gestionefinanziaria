@@ -398,6 +398,7 @@ export async function importIncrementalAction(
         amount_cents: m.row.amount_cents,
         amount_in_cents: m.row.amount_in_cents,
         amount_out_cents: m.row.amount_out_cents,
+        flow_type: m.row.flow_type,
         bank_description: m.row.bank_description,
         payment_method: m.row.payment_method,
         priority_score: priorityScore,
