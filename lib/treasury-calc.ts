@@ -29,65 +29,85 @@ export type TreasuryDay = {
 // paymentId → data in cui può essere pagato (null = non coperto nei 30 gg)
 export type SimResult = Record<string, string | null>
 
-// ─── Distribuzione forecast rimanente ─────────────────────────────────────────
+// ─── Distribuzione forecast ────────────────────────────────────────────────────
 
 /**
- * Distribuisce il forecast rimanente del mese nei giorni futuri,
- * secondo il pattern di incasso della società.
+ * Distribuisce il forecast totale del mese secondo il pattern di incasso.
+ * La mappa restituita contiene tutti i giorni del mese (non solo i futuri):
+ * il chiamante filtra per >= today.
  *
- * payout_fixed_weekday: 0=Lun … 6=Dom (non usato qui, solo rolling/daily)
+ * daily:        lun-sab del mese, quote uguali (domenica = 0)
+ * monthly:      100% sul giorno day_of_month (clampato all'ultimo giorno)
+ * subscription: 30% gg 1-10, 30% gg 11-20, 40% gg 21-fine mese
  */
-export function distributeRemainingForecast(
-  remainingCents: number,
+export function distributeForecast(
+  totalCents: number,
   pattern: PatternType,
-  avgSettlementDays: number,
-  today: string,   // YYYY-MM-DD
+  dayOfMonth: number | null,
   year: number,
   month: number,
 ): Map<string, number> {
   const result = new Map<string, number>()
-  if (remainingCents <= 0) return result
+  if (totalCents <= 0) return result
 
   const lastDay = new Date(year, month, 0).getDate()
   const pad = (n: number) => String(n).padStart(2, '0')
   const monthStr = pad(month)
+  const dateStr = (d: number) => `${year}-${monthStr}-${pad(d)}`
 
-  let targetDays: string[] = []
-
-  if (pattern === 'monthly_first_10') {
-    for (let d = 1; d <= 10; d++) {
-      const ds = `${year}-${monthStr}-${pad(d)}`
-      if (ds >= today) targetDays.push(ds)
-    }
-    // Oltre il 10: nessun incasso futuro nel pattern
-    if (targetDays.length === 0) return result
-
-  } else {
-    // 'daily' e 'daily_with_settlement': tutti i giorni rimanenti del mese
-    for (let d = 1; d <= lastDay; d++) {
-      const ds = `${year}-${monthStr}-${pad(d)}`
-      if (ds >= today) targetDays.push(ds)
-    }
-    if (pattern === 'daily_with_settlement' && avgSettlementDays > 0) {
-      targetDays = targetDays.map(ds => {
-        const d = new Date(ds + 'T00:00:00')
-        d.setDate(d.getDate() + avgSettlementDays)
-        return d.toISOString().split('T')[0]
-      })
-    }
+  if (pattern === 'monthly') {
+    const d = Math.min(dayOfMonth ?? 1, lastDay)
+    result.set(dateStr(d), totalCents)
+    return result
   }
 
-  if (targetDays.length === 0) return result
+  if (pattern === 'subscription') {
+    // segmento 1: gg 1-10 → 30%
+    const seg1Total = Math.floor(totalCents * 0.30)
+    const perDay1   = Math.floor(seg1Total / 10)
+    let rem1        = seg1Total - perDay1 * 10
+    for (let d = 1; d <= 10; d++) {
+      const extra = rem1 > 0 ? 1 : 0
+      if (rem1 > 0) rem1--
+      result.set(dateStr(d), perDay1 + extra)
+    }
+    // segmento 2: gg 11-20 → 30%
+    const seg2Total = Math.floor(totalCents * 0.30)
+    const perDay2   = Math.floor(seg2Total / 10)
+    let rem2        = seg2Total - perDay2 * 10
+    for (let d = 11; d <= 20; d++) {
+      const extra = rem2 > 0 ? 1 : 0
+      if (rem2 > 0) rem2--
+      result.set(dateStr(d), perDay2 + extra)
+    }
+    // segmento 3: gg 21-lastDay → 40% (aggiusta centesimi residui sull'ultimo giorno)
+    const seg3Count = lastDay - 20
+    const seg3Total = totalCents - seg1Total - seg2Total
+    const perDay3   = Math.floor(seg3Total / seg3Count)
+    let rem3        = seg3Total - perDay3 * seg3Count
+    for (let d = 21; d <= lastDay; d++) {
+      const extra = rem3 > 0 ? 1 : 0
+      if (rem3 > 0) rem3--
+      result.set(dateStr(d), perDay3 + extra)
+    }
+    return result
+  }
 
-  const perDay = Math.floor(remainingCents / targetDays.length)
-  let rem = remainingCents - perDay * targetDays.length
+  // pattern === 'daily': lun-sab, domenica = 0
+  const workDays: number[] = []
+  for (let d = 1; d <= lastDay; d++) {
+    const dow = new Date(year, month - 1, d).getDay() // 0=Dom
+    if (dow !== 0) workDays.push(d)
+  }
+  if (workDays.length === 0) return result
 
-  for (const ds of targetDays) {
+  const perDay = Math.floor(totalCents / workDays.length)
+  let rem      = totalCents - perDay * workDays.length
+  for (const d of workDays) {
     const extra = rem > 0 ? 1 : 0
     if (rem > 0) rem--
-    result.set(ds, (result.get(ds) ?? 0) + perDay + extra)
+    result.set(dateStr(d), perDay + extra)
   }
-
   return result
 }
 

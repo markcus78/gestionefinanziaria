@@ -6,6 +6,7 @@ import { BankAccountsSection } from './bank-accounts-section'
 import { ChannelsSection } from './channels-section'
 import { ThresholdsSection } from './thresholds-section'
 import { UsersSection } from './users-section'
+import { CollectionPatternsSection } from './collection-patterns-section'
 
 export default async function SettingsPage({
   searchParams,
@@ -32,6 +33,7 @@ export default async function SettingsPage({
   let bankAccounts = null
   let companyCashChannels = null
   let users = null
+  let collectionPatterns = null
 
   if (tab === 'banche') {
     const { data } = await supabase
@@ -44,6 +46,14 @@ export default async function SettingsPage({
   if (tab === 'canali') {
     const { data } = await supabase.from('company_cash_channels').select('*')
     companyCashChannels = data
+  }
+
+  if (tab === 'pattern') {
+    const { data } = await supabase
+      .from('collection_patterns')
+      .select('company_id, pattern_type, day_of_month')
+      .is('channel_id', null)
+    collectionPatterns = data
   }
 
   if (tab === 'utenti') {
@@ -79,6 +89,13 @@ export default async function SettingsPage({
 
         {tab === 'soglie' && (
           <ThresholdsSection companies={companies ?? []} />
+        )}
+
+        {tab === 'pattern' && (
+          <CollectionPatternsSection
+            companies={companies ?? []}
+            patterns={(collectionPatterns ?? []) as { company_id: string; pattern_type: 'daily' | 'monthly' | 'subscription'; day_of_month: number | null }[]}
+          />
         )}
 
         {tab === 'utenti' && isStrategic && (

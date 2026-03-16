@@ -56,13 +56,14 @@ export type ChannelConfig = CompanyCashChannel & {
   cash_channels: CashChannel
 }
 
-export type PatternType = 'monthly_first_10' | 'daily' | 'daily_with_settlement'
+export type PatternType = 'daily' | 'monthly' | 'subscription'
 
 export type CollectionPattern = {
   id: string
   company_id: string
   channel_id: string | null
   pattern_type: PatternType
+  day_of_month: number | null
   description: string | null
 }
 

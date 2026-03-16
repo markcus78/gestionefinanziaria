@@ -6,6 +6,7 @@ const tabs = [
   { id: 'banche', label: 'Conti Bancari' },
   { id: 'canali', label: 'Canali Incasso' },
   { id: 'soglie', label: 'Soglie Alert' },
+  { id: 'pattern', label: 'Pattern Incassi' },
   { id: 'utenti', label: 'Utenti' },
 ]
 

@@ -110,6 +110,39 @@ export async function updateChannelConfig(_: unknown, formData: FormData) {
   return { success: true }
 }
 
+// ─── Pattern Incassi ──────────────────────────────────────────────────────────
+
+export async function upsertCollectionPattern(
+  companyId: string,
+  patternType: 'daily' | 'monthly' | 'subscription',
+  dayOfMonth: number | null,
+): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const { data: existing } = await supabase
+    .from('collection_patterns')
+    .select('id')
+    .eq('company_id', companyId)
+    .is('channel_id', null)
+    .single()
+
+  let error
+  if (existing) {
+    ;({ error } = await supabase
+      .from('collection_patterns')
+      .update({ pattern_type: patternType, day_of_month: dayOfMonth })
+      .eq('id', existing.id))
+  } else {
+    ;({ error } = await supabase
+      .from('collection_patterns')
+      .insert({ company_id: companyId, channel_id: null, pattern_type: patternType, day_of_month: dayOfMonth }))
+  }
+
+  if (error) return { error: error.message }
+  revalidatePath('/settings')
+  revalidatePath('/treasury')
+  return {}
+}
+
 // ─── Soglie Alert ─────────────────────────────────────────────────────────────
 
 export async function updateThreshold(_: unknown, formData: FormData) {

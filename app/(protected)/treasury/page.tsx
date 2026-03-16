@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { Landmark } from 'lucide-react'
 import TreasuryClient from './treasury-client'
 import {
-  distributeRemainingForecast,
+  distributeForecast,
   buildTimeline,
   addDays,
   type PaymentItem,
@@ -33,9 +33,6 @@ export default async function TreasuryPage({
   const now         = new Date()
   const year        = now.getFullYear()
   const month       = now.getMonth() + 1
-  const monthStr    = String(month).padStart(2, '0')
-  const monthStart  = `${year}-${monthStr}-01`
-  const monthEnd    = new Date(year, month, 0).toISOString().split('T')[0]
 
   // ── Fetch base ────────────────────────────────────────────────────────────
   const [
@@ -43,15 +40,13 @@ export default async function TreasuryPage({
     { data: allBankAccounts },
     { data: collectionPatterns },
     { data: forecastsRaw },
-    { data: collectionsThisMonth },
     { data: pendingSettlementsRaw },
     { data: paymentsRaw },
   ] = await Promise.all([
     supabase.from('companies').select('id, code, name, minimum_cash_threshold_cents').eq('is_active', true).order('code'),
     supabase.from('bank_accounts').select('*').eq('is_active', true).order('company_id'),
-    supabase.from('collection_patterns').select('*').is('channel_id', null),
+    supabase.from('collection_patterns').select('company_id, pattern_type, day_of_month').is('channel_id', null),
     supabase.from('monthly_revenue_forecasts').select('company_id, forecast_gross_cents').eq('year', year).eq('month', month),
-    supabase.from('daily_collections').select('company_id, gross_amount_cents').gte('collection_date', monthStart).lte('collection_date', monthEnd),
     supabase.from('daily_collections').select('company_id, net_amount_cents, settlement_expected_date').eq('is_settled', false).not('settlement_expected_date', 'is', null),
     supabase.from('payment_schedule')
       .select('id, company_id, supplier_name, account_description, due_date, amount_cents, status, priority_score, priority_override, is_intercompany, supplier_registry(category, is_critical)')
@@ -85,24 +80,23 @@ export default async function TreasuryPage({
     certainMap.set(c.settlement_expected_date, (certainMap.get(c.settlement_expected_date) ?? 0) + (c.net_amount_cents ?? 0))
   }
 
-  // ── Forecast rimanente distribuito ───────────────────────────────────────
+  // ── Forecast distribuito (forecast totale, non rimanente) ─────────────────
   const forecastMap = new Map<string, number>()
   for (const c of companiesInScope) {
     const forecastTotal = (forecastsRaw ?? [])
       .filter(f => f.company_id === c.id)
       .reduce((s, f) => s + (f.forecast_gross_cents ?? 0), 0)
-    const alreadyCollected = (collectionsThisMonth ?? [])
-      .filter(col => col.company_id === c.id)
-      .reduce((s, col) => s + (col.gross_amount_cents ?? 0), 0)
-    const remaining = Math.max(0, forecastTotal - alreadyCollected)
 
     const patternRow = (collectionPatterns ?? []).find(p => p.company_id === c.id)
     const pattern: PatternType = (patternRow?.pattern_type as PatternType) ?? 'daily'
-    const avgSettlement = 0 // già gestito dal payout delle daily_collections
+    const dayOfMonth: number | null = patternRow?.day_of_month ?? null
 
-    const dist = distributeRemainingForecast(remaining, pattern, avgSettlement, today, year, month)
+    const dist = distributeForecast(forecastTotal, pattern, dayOfMonth, year, month)
     for (const [date, cents] of dist) {
-      forecastMap.set(date, (forecastMap.get(date) ?? 0) + cents)
+      // includi solo i giorni >= today nella mappa della tesoreria
+      if (date >= today) {
+        forecastMap.set(date, (forecastMap.get(date) ?? 0) + cents)
+      }
     }
   }
 
