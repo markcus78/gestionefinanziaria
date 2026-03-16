@@ -273,7 +273,12 @@ export default async function SchedulePage({
         </div>
       ) : (
         /* ── Grouped view (default) ── */
-        <ScheduleGrouped rows={rows} today={today} />
+        <ScheduleGrouped
+          rows={rows}
+          today={today}
+          companyCodeMap={Object.fromEntries((companies ?? []).map(c => [c.id, c.code]))}
+          showCompany={!companyId}
+        />
       )}
     </div>
   )

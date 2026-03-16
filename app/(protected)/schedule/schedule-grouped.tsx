@@ -9,6 +9,8 @@ import type { PaymentScheduleItem, PaymentStatus } from '@/lib/types/database'
 type Props = {
   rows: PaymentScheduleItem[]
   today: string
+  companyCodeMap?: Record<string, string>
+  showCompany?: boolean
 }
 
 type DayGroup   = { date: string; rows: PaymentScheduleItem[] }
@@ -100,11 +102,15 @@ function RowsTable({
   rows,
   today,
   showDate,
+  showCompany,
+  companyCodeMap,
   navigateSupplier,
 }: {
   rows: PaymentScheduleItem[]
   today: string
   showDate: boolean
+  showCompany?: boolean
+  companyCodeMap?: Record<string, string>
   navigateSupplier: (item: PaymentScheduleItem) => void
 }) {
   return (
@@ -113,6 +119,7 @@ function RowsTable({
         <thead>
           <tr className="border-b border-zinc-800 bg-zinc-900/80">
             {showDate && <th className="text-left px-3 py-2 text-zinc-500 font-medium">Data</th>}
+            {showCompany && <th className="text-left px-3 py-2 text-zinc-500 font-medium">Soc.</th>}
             <th className="text-left px-3 py-2 text-zinc-500 font-medium">P</th>
             <th className="text-left px-3 py-2 text-zinc-500 font-medium">Fornitore</th>
             <th className="text-left px-3 py-2 text-zinc-500 font-medium">Documento</th>
@@ -134,6 +141,13 @@ function RowsTable({
                 {showDate && (
                   <td className={`px-3 py-2 font-medium tabular-nums ${dateClass}`}>
                     {new Date(item.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
+                  </td>
+                )}
+                {showCompany && (
+                  <td className="px-3 py-2">
+                    <span className="px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-300 font-medium">
+                      {companyCodeMap?.[item.company_id] ?? '—'}
+                    </span>
                   </td>
                 )}
                 <td className="px-3 py-2">
@@ -194,7 +208,7 @@ function RowsTable({
   )
 }
 
-export default function ScheduleGrouped({ rows, today }: Props) {
+export default function ScheduleGrouped({ rows, today, companyCodeMap, showCompany }: Props) {
   const currentYear  = parseInt(today.slice(0, 4))
   const currentMonth = parseInt(today.slice(5, 7))
 
@@ -268,7 +282,7 @@ export default function ScheduleGrouped({ rows, today }: Props) {
               </button>
               {yearOpen && (
                 <div className="border-t border-zinc-700 bg-zinc-900">
-                  <RowsTable rows={allYearRows} today={today} showDate navigateSupplier={navigateSupplier} />
+                  <RowsTable rows={allYearRows} today={today} showDate showCompany={showCompany} companyCodeMap={companyCodeMap} navigateSupplier={navigateSupplier} />
                 </div>
               )}
             </div>
@@ -319,7 +333,7 @@ export default function ScheduleGrouped({ rows, today }: Props) {
 
                         {monthOpen && (
                           <div className="bg-zinc-900 border-l border-zinc-700 ml-4">
-                            <RowsTable rows={allMonthRows} today={today} showDate navigateSupplier={navigateSupplier} />
+                            <RowsTable rows={allMonthRows} today={today} showDate showCompany={showCompany} companyCodeMap={companyCodeMap} navigateSupplier={navigateSupplier} />
                           </div>
                         )}
                       </div>
@@ -401,7 +415,7 @@ export default function ScheduleGrouped({ rows, today }: Props) {
 
                                 {dayOpen && (
                                   <div className="bg-zinc-900 border-l border-zinc-700 ml-4">
-                                    <RowsTable rows={dg.rows} today={today} showDate={false} navigateSupplier={navigateSupplier} />
+                                    <RowsTable rows={dg.rows} today={today} showDate={false} showCompany={showCompany} companyCodeMap={companyCodeMap} navigateSupplier={navigateSupplier} />
                                   </div>
                                 )}
                               </div>
