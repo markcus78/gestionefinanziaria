@@ -31,14 +31,36 @@ export type SimResult = Record<string, string | null>
 
 // ─── Distribuzione forecast ────────────────────────────────────────────────────
 
+// Modello DOW+DOM: moltiplicatori calibrati su 14 mesi di storico WT/APPIAE
+// DOW: 0=Lun … 6=Dom  (JS getDay restituisce 0=Dom → converti con (jsDow+6)%7)
+const DOW_MULT: Record<number, number> = {
+  0: 1.3555, // Lunedì
+  1: 1.0783, // Martedì
+  2: 1.0398, // Mercoledì
+  3: 1.0522, // Giovedì
+  4: 1.1797, // Venerdì
+  5: 0.7490, // Sabato
+  6: 0.5455, // Domenica
+}
+const DOM_MULT: Record<number, number> = {
+   1: 1.2407,  2: 1.7991,  3: 1.2075,  4: 1.0494,  5: 0.8500,
+   6: 0.7798,  7: 0.9497,  8: 1.0967,  9: 0.9052, 10: 1.1154,
+  11: 0.8558, 12: 1.0244, 13: 0.8726, 14: 0.7186, 15: 1.1799,
+  16: 0.9242, 17: 1.0140, 18: 0.9342, 19: 0.8416, 20: 0.7505,
+  21: 0.7508, 22: 0.8701, 23: 0.7279, 24: 0.7928, 25: 0.7781,
+  26: 0.9069, 27: 1.0672, 28: 1.1079, 29: 1.0925, 30: 1.5144,
+  31: 1.6637,
+}
+
 /**
  * Distribuisce il forecast totale del mese secondo il pattern di incasso.
  * La mappa restituita contiene tutti i giorni del mese (non solo i futuri):
  * il chiamante filtra per >= today.
  *
  * daily:        lun-sab del mese, quote uguali (domenica = 0)
- * monthly:      100% sul giorno day_of_month (clampato all'ultimo giorno)
- * subscription: 30% gg 1-10, 30% gg 11-20, 40% gg 21-fine mese
+ * monthly:      100% tutto il giorno day_of_month (clampato all'ultimo giorno)
+ * subscription: modello DOW+DOM — peso giornaliero = DOW_mult × DOM_mult,
+ *               normalizzato sul totale mensile
  */
 export function distributeForecast(
   totalCents: number,
@@ -62,33 +84,25 @@ export function distributeForecast(
   }
 
   if (pattern === 'subscription') {
-    // segmento 1: gg 1-10 → 30%
-    const seg1Total = Math.floor(totalCents * 0.30)
-    const perDay1   = Math.floor(seg1Total / 10)
-    let rem1        = seg1Total - perDay1 * 10
-    for (let d = 1; d <= 10; d++) {
-      const extra = rem1 > 0 ? 1 : 0
-      if (rem1 > 0) rem1--
-      result.set(dateStr(d), perDay1 + extra)
+    // DOW+DOM: calcola il peso di ogni giorno e normalizza
+    const weights: { d: number; w: number }[] = []
+    let totalWeight = 0
+    for (let d = 1; d <= lastDay; d++) {
+      const jsDow = new Date(year, month - 1, d).getDay() // 0=Dom
+      const modelDow = (jsDow + 6) % 7                    // 0=Lun
+      const w = (DOW_MULT[modelDow] ?? 1) * (DOM_MULT[d] ?? 1)
+      weights.push({ d, w })
+      totalWeight += w
     }
-    // segmento 2: gg 11-20 → 30%
-    const seg2Total = Math.floor(totalCents * 0.30)
-    const perDay2   = Math.floor(seg2Total / 10)
-    let rem2        = seg2Total - perDay2 * 10
-    for (let d = 11; d <= 20; d++) {
-      const extra = rem2 > 0 ? 1 : 0
-      if (rem2 > 0) rem2--
-      result.set(dateStr(d), perDay2 + extra)
-    }
-    // segmento 3: gg 21-lastDay → 40% (aggiusta centesimi residui sull'ultimo giorno)
-    const seg3Count = lastDay - 20
-    const seg3Total = totalCents - seg1Total - seg2Total
-    const perDay3   = Math.floor(seg3Total / seg3Count)
-    let rem3        = seg3Total - perDay3 * seg3Count
-    for (let d = 21; d <= lastDay; d++) {
-      const extra = rem3 > 0 ? 1 : 0
-      if (rem3 > 0) rem3--
-      result.set(dateStr(d), perDay3 + extra)
+    let allocated = 0
+    for (let i = 0; i < weights.length; i++) {
+      const { d, w } = weights[i]
+      const isLast = i === weights.length - 1
+      const cents = isLast
+        ? totalCents - allocated
+        : Math.floor(totalCents * w / totalWeight)
+      allocated += cents
+      result.set(dateStr(d), cents)
     }
     return result
   }

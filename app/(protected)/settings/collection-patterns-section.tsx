@@ -18,7 +18,7 @@ type Props = {
 const LABELS: Record<string, string> = {
   daily:        'Giornaliero',
   monthly:      'Mensile',
-  subscription: 'Abbonamenti',
+  subscription: 'Storico DOW+DOM',
 }
 
 export function CollectionPatternsSection({ companies, patterns }: Props) {
@@ -126,7 +126,7 @@ export function CollectionPatternsSection({ companies, patterns }: Props) {
             <p className="text-xs text-zinc-500 mt-2 ml-20">
               {row.pattern_type === 'daily' && 'Distribuzione uniforme lun–sab. Domenica = 0.'}
               {row.pattern_type === 'monthly' && `100% concentrato il giorno ${row.day_of_month ?? '?'} del mese.`}
-              {row.pattern_type === 'subscription' && '30% nei giorni 1–10, 30% nei giorni 11–20, 40% nei giorni 21–fine mese.'}
+              {row.pattern_type === 'subscription' && 'Modello DOW+DOM: peso giornaliero calibrato su giorno della settimana × giorno del mese (14 mesi di storico WT).'}
             </p>
           </div>
         )
