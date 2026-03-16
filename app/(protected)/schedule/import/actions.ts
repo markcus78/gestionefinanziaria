@@ -1,14 +1,54 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { parseXLSBuffer, computeDedupKey, type ParsedRow, type ParseStats } from '@/lib/xls-parser'
+import {
+  parseXLSBuffer,
+  computeDedupKey,
+  buildMatchKey,
+  type ParsedRow,
+  type ParseStats,
+} from '@/lib/xls-parser'
 import { calculatePriorityScore } from '@/lib/priority-scorer'
 import { revalidatePath } from 'next/cache'
 import type { SupplierCategory } from '@/lib/types/database'
 
+// ── Tipi esportati ──────────────────────────────────────────────────────────
+
 export type ParseFileResult =
   | { error: string }
   | { stats: ParseStats; previewRows: ParsedRow[]; allRowsJson: string }
+
+export type DiffModified = {
+  dbId: string
+  matchKey: string
+  dbDueDate: string
+  dbAmountCents: number
+  row: ParsedRow
+}
+
+export type DiffRemoved = {
+  dbId: string
+  supplierName: string | null
+  documentNumber: string | null
+  dueDate: string
+  amountCents: number
+}
+
+export type FileDiffResult = {
+  added: ParsedRow[]
+  alwaysNew: ParsedRow[]
+  modified: DiffModified[]
+  removed: DiffRemoved[]
+  unchanged: number
+}
+
+export type DiffPreviewResult = { error: string } | FileDiffResult
+
+export type ImportResult =
+  | { error: string }
+  | { rowsNew: number; rowsModified: number; rowsMarkedPaid: number; rowsSkipped: number; suppliersNew: number }
+
+// ── Parse ──────────────────────────────────────────────────────────────────
 
 export async function parseFileAction(formData: FormData): Promise<ParseFileResult> {
   const file = formData.get('file') as File
@@ -16,28 +56,195 @@ export async function parseFileAction(formData: FormData): Promise<ParseFileResu
   if (!file.name.toLowerCase().endsWith('.xls') && !file.name.toLowerCase().endsWith('.xlsx')) {
     return { error: 'Il file deve essere in formato .XLS o .XLSX' }
   }
-
   try {
     const buffer = await file.arrayBuffer()
     const { rows, stats } = parseXLSBuffer(buffer)
-    return {
-      stats,
-      previewRows: rows.slice(0, 50),
-      allRowsJson: JSON.stringify(rows),
-    }
+    return { stats, previewRows: rows.slice(0, 50), allRowsJson: JSON.stringify(rows) }
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Errore nel parsing del file' }
   }
 }
 
-export type ImportResult =
-  | { error: string }
-  | { rowsNew: number; rowsSkipped: number; suppliersNew: number }
+// ── Helper interni ──────────────────────────────────────────────────────────
 
-export async function importBatchAction(
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>
+type SupplierInfo = {
+  id: string
+  category: SupplierCategory | null
+  isCritical: boolean
+  acceptsPostponement: boolean
+}
+
+function buildDbMatchKey(
+  companyId: string,
+  row: { supplier_code: string | null; document_number: string | null; document_date: string | null }
+): string | null {
+  if (!row.supplier_code || !row.document_number) return null
+  return [companyId, row.supplier_code, row.document_number, row.document_date ?? ''].join('|')
+}
+
+function buildPaymentRow(
+  row: ParsedRow,
+  companyId: string,
+  batchId: string,
+  supplierMap: Map<string, SupplierInfo>,
+  legalNameToId: Map<string, string>
+) {
+  const supplier = row.supplier_code ? supplierMap.get(row.supplier_code) : undefined
+  const counterpartId = row.counterpart_legal_name
+    ? (legalNameToId.get(row.counterpart_legal_name.toLowerCase()) ?? null)
+    : null
+  const priorityScore =
+    row.flow_type === 'out'
+      ? calculatePriorityScore({
+          category: supplier?.category ?? null,
+          dueDate: row.due_date,
+          isCritical: supplier?.isCritical ?? false,
+          acceptsPostponement: supplier?.acceptsPostponement ?? false,
+        })
+      : null
+  const dedupKey = computeDedupKey(
+    companyId,
+    row.supplier_code,
+    row.document_number,
+    row.due_date,
+    row.amount_cents
+  )
+  return {
+    company_id: companyId,
+    import_batch_id: batchId,
+    supplier_name: row.supplier_name,
+    supplier_code: row.supplier_code,
+    account_code: row.account_code,
+    account_description: row.account_description,
+    document_type: row.document_type,
+    document_number: row.document_number,
+    document_date: row.document_date,
+    due_date: row.due_date,
+    payment_method: row.payment_method,
+    bank_description: row.bank_description,
+    amount_cents: row.amount_cents,
+    amount_in_cents: row.amount_in_cents,
+    amount_out_cents: row.amount_out_cents,
+    flow_type: row.flow_type,
+    entry_type: row.entry_type,
+    is_intercompany: row.is_intercompany,
+    counterpart_company_id: counterpartId,
+    supplier_id: supplier?.id ?? null,
+    priority_score: priorityScore,
+    dedup_key: dedupKey,
+  }
+}
+
+async function computeDiff(
+  companyId: string,
+  rows: ParsedRow[],
+  supabase: SupabaseClient
+): Promise<FileDiffResult | { error: string }> {
+  const { data: dbRows, error: dbErr } = await supabase
+    .from('payment_schedule')
+    .select('id, supplier_code, document_number, document_date, due_date, amount_cents, supplier_name')
+    .eq('company_id', companyId)
+    .eq('entry_type', 'accounting')
+  if (dbErr) return { error: dbErr.message }
+
+  // Map matchKey → dbRow
+  const dbMap = new Map<string, {
+    id: string
+    due_date: string
+    amount_cents: number
+    supplier_name: string | null
+    document_number: string | null
+  }>()
+  for (const dbRow of dbRows ?? []) {
+    const key = buildDbMatchKey(companyId, dbRow)
+    if (key) dbMap.set(key, {
+      id: dbRow.id,
+      due_date: dbRow.due_date,
+      amount_cents: dbRow.amount_cents,
+      supplier_name: dbRow.supplier_name,
+      document_number: dbRow.document_number,
+    })
+  }
+
+  const added: ParsedRow[] = []
+  const alwaysNew: ParsedRow[] = []
+  const modified: DiffModified[] = []
+  const xlsKeys = new Set<string>()
+  let unchanged = 0
+
+  for (const row of rows) {
+    if (row.entry_type !== 'accounting') {
+      alwaysNew.push(row)
+      continue
+    }
+    const key = buildMatchKey(companyId, row)
+    if (!key) {
+      alwaysNew.push(row)
+      continue
+    }
+    xlsKeys.add(key)
+    const dbRow = dbMap.get(key)
+    if (!dbRow) {
+      added.push(row)
+    } else if (dbRow.due_date !== row.due_date || dbRow.amount_cents !== row.amount_cents) {
+      modified.push({
+        dbId: dbRow.id,
+        matchKey: key,
+        dbDueDate: dbRow.due_date,
+        dbAmountCents: dbRow.amount_cents,
+        row,
+      })
+    } else {
+      unchanged++
+    }
+  }
+
+  const removed: DiffRemoved[] = []
+  for (const [key, dbRow] of dbMap) {
+    if (!xlsKeys.has(key)) {
+      removed.push({
+        dbId: dbRow.id,
+        supplierName: dbRow.supplier_name,
+        documentNumber: dbRow.document_number,
+        dueDate: dbRow.due_date,
+        amountCents: dbRow.amount_cents,
+      })
+    }
+  }
+
+  return { added, alwaysNew, modified, removed, unchanged }
+}
+
+// ── Diff Preview ────────────────────────────────────────────────────────────
+
+export async function diffPreviewAction(
+  companyCode: string,
+  rowsJson: string
+): Promise<DiffPreviewResult> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autenticato' }
+
+  const rows: ParsedRow[] = JSON.parse(rowsJson)
+
+  const { data: companyRow } = await supabase
+    .from('companies')
+    .select('id')
+    .eq('code', companyCode)
+    .single()
+  if (!companyRow) return { error: `Società "${companyCode}" non trovata` }
+
+  return computeDiff(companyRow.id, rows, supabase)
+}
+
+// ── Import Incrementale ─────────────────────────────────────────────────────
+
+export async function importIncrementalAction(
   companyCode: string,
   rowsJson: string,
-  fileName: string
+  fileName: string,
+  markPaidIds: string[]
 ): Promise<ImportResult> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -46,7 +253,7 @@ export async function importBatchAction(
   const rows: ParsedRow[] = JSON.parse(rowsJson)
   if (!rows.length) return { error: 'Nessuna riga da importare' }
 
-  // 0. Risolvi companyCode → companyId (UUID)
+  // 0. Risolvi companyCode → companyId
   const { data: companyRow } = await supabase
     .from('companies')
     .select('id')
@@ -55,24 +262,39 @@ export async function importBatchAction(
   if (!companyRow) return { error: `Società con codice "${companyCode}" non trovata` }
   const companyId = companyRow.id
 
-  // 1. Elimina partite contabili (wipe + re-import) e commitment da XLS (import batch precedenti)
-  //    I commitment con import_batch_id IS NULL (creati manualmente) vengono preservati
-  const { error: deleteErr1 } = await supabase
+  // 1. Calcola diff (ricalcolo server-side per sicurezza)
+  const diff = await computeDiff(companyId, rows, supabase)
+  if ('error' in diff) return { error: diff.error }
+
+  // Sicurezza: accetta solo markPaidIds che sono effettivamente "removed"
+  const removedIds = new Set(diff.removed.map(r => r.dbId))
+  const safeMarkPaidIds = markPaidIds.filter(id => removedIds.has(id))
+
+  // 2. Elimina righe DB senza matchKey (not matchable, cleanup)
+  await supabase
     .from('payment_schedule')
     .delete()
     .eq('company_id', companyId)
     .eq('entry_type', 'accounting')
-  if (deleteErr1) return { error: `Errore eliminazione dati contabili: ${deleteErr1.message}` }
+    .is('supplier_code', null)
 
-  const { error: deleteErr2 } = await supabase
+  await supabase
+    .from('payment_schedule')
+    .delete()
+    .eq('company_id', companyId)
+    .eq('entry_type', 'accounting')
+    .is('document_number', null)
+
+  // 3. Elimina commitment da import XLS precedenti (import_batch_id IS NOT NULL)
+  const { error: deleteErr } = await supabase
     .from('payment_schedule')
     .delete()
     .eq('company_id', companyId)
     .eq('entry_type', 'commitment')
     .not('import_batch_id', 'is', null)
-  if (deleteErr2) return { error: `Errore eliminazione commitment XLS: ${deleteErr2.message}` }
+  if (deleteErr) return { error: `Errore eliminazione commitment XLS: ${deleteErr.message}` }
 
-  // 2. Fetch companies per mapping legal_name → id
+  // 4. Fetch companies per mapping legal_name → id
   const { data: companies } = await supabase.from('companies').select('id, legal_name')
   const legalNameToId = new Map(
     (companies ?? [])
@@ -80,23 +302,21 @@ export async function importBatchAction(
       .map(c => [c.legal_name!.toLowerCase(), c.id])
   )
 
-  // 3. Crea import batch
+  // 5. Crea import batch
   const { data: batch, error: batchErr } = await supabase
     .from('import_batches')
     .insert({ company_id: companyId, imported_by: user.id, file_name: fileName, status: 'in_progress' })
     .select('id')
     .single()
-
   if (batchErr || !batch) return { error: batchErr?.message ?? 'Errore creazione batch' }
 
-  // 4. Upsert fornitori (solo nuovi, non sovrascrivere quelli esistenti con categoria già impostata)
-  const uniqueSuppliers = new Map<string, string>() // code → name
+  // 6. Upsert fornitori
+  const uniqueSuppliers = new Map<string, string>()
   for (const row of rows) {
     if (row.supplier_code && row.supplier_name && !uniqueSuppliers.has(row.supplier_code)) {
       uniqueSuppliers.set(row.supplier_code, row.supplier_name)
     }
   }
-
   let suppliersNew = 0
   if (uniqueSuppliers.size > 0) {
     const toInsert = Array.from(uniqueSuppliers.entries()).map(([code, name]) => ({
@@ -104,8 +324,6 @@ export async function importBatchAction(
       supplier_code: code,
       supplier_name: name,
     }))
-
-    // Insert only — skip existing (ignoreDuplicates preserves user data)
     const { data: inserted } = await supabase
       .from('supplier_registry')
       .upsert(toInsert, { onConflict: 'company_id,supplier_code', ignoreDuplicates: true })
@@ -113,15 +331,14 @@ export async function importBatchAction(
     suppliersNew = inserted?.length ?? 0
   }
 
-  // 5. Fetch supplier registry (per categoria e flag critico → priority score)
+  // 7. Fetch supplier registry per priority score
   const { data: supplierRegistry } = await supabase
     .from('supplier_registry')
     .select('id, supplier_code, category, is_critical, accepts_postponement')
     .eq('company_id', companyId)
-
-  const supplierMap = new Map(
+  const supplierMap = new Map<string, SupplierInfo>(
     (supplierRegistry ?? []).map(s => [
-      s.supplier_code,
+      s.supplier_code as string,
       {
         id: s.id as string,
         category: s.category as SupplierCategory | null,
@@ -131,71 +348,22 @@ export async function importBatchAction(
     ])
   )
 
-  // 6. Prepara righe payment_schedule
-  const paymentRows = rows.map(row => {
-    const supplier = row.supplier_code ? supplierMap.get(row.supplier_code) : null
-    const counterpartId = row.counterpart_legal_name
-      ? (legalNameToId.get(row.counterpart_legal_name.toLowerCase()) ?? null)
-      : null
+  // 8. INSERT righe nuove (added + alwaysNew)
+  const toInsert = [
+    ...diff.added,
+    ...diff.alwaysNew,
+  ].map(row => buildPaymentRow(row, companyId, batch.id, supplierMap, legalNameToId))
 
-    const priorityScore =
-      row.flow_type === 'out'
-        ? calculatePriorityScore({
-            category: supplier?.category ?? null,
-            dueDate: row.due_date,
-            isCritical: supplier?.isCritical ?? false,
-            acceptsPostponement: supplier?.acceptsPostponement ?? false,
-          })
-        : null
-
-    const dedupKey = computeDedupKey(
-      companyId,
-      row.supplier_code,
-      row.document_number,
-      row.due_date,
-      row.amount_cents
-    )
-
-    return {
-      company_id: companyId,
-      import_batch_id: batch.id,
-      supplier_name: row.supplier_name,
-      supplier_code: row.supplier_code,
-      account_code: row.account_code,
-      account_description: row.account_description,
-      document_type: row.document_type,
-      document_number: row.document_number,
-      document_date: row.document_date,
-      due_date: row.due_date,
-      payment_method: row.payment_method,
-      bank_description: row.bank_description,
-      amount_cents: row.amount_cents,
-      amount_in_cents: row.amount_in_cents,
-      amount_out_cents: row.amount_out_cents,
-      flow_type: row.flow_type,
-      entry_type: row.entry_type,
-      is_intercompany: row.is_intercompany,
-      counterpart_company_id: counterpartId,
-      supplier_id: supplier?.id ?? null,
-      priority_score: priorityScore,
-      dedup_key: dedupKey,
-    }
-  })
-
-  // 7. Insert a blocchi di 100
   let rowsNew = 0
   let rowsSkipped = 0
   const CHUNK = 100
-
-  for (let i = 0; i < paymentRows.length; i += CHUNK) {
-    const chunk = paymentRows.slice(i, i + CHUNK)
+  for (let i = 0; i < toInsert.length; i += CHUNK) {
+    const chunk = toInsert.slice(i, i + CHUNK)
     const { data: inserted, error: insErr } = await supabase
       .from('payment_schedule')
       .upsert(chunk, { onConflict: 'dedup_key', ignoreDuplicates: true })
       .select('id')
-
     if (insErr) {
-      console.error('Chunk insert error:', insErr.message)
       rowsSkipped += chunk.length
     } else {
       rowsNew += inserted?.length ?? 0
@@ -203,12 +371,60 @@ export async function importBatchAction(
     }
   }
 
-  // 8. Aggiorna batch con statistiche finali
+  // 9. UPDATE righe modificate (preserva status/priority_override/note)
+  let rowsModified = 0
+  for (const m of diff.modified) {
+    const supplier = m.row.supplier_code ? supplierMap.get(m.row.supplier_code) : undefined
+    const priorityScore =
+      m.row.flow_type === 'out'
+        ? calculatePriorityScore({
+            category: supplier?.category ?? null,
+            dueDate: m.row.due_date,
+            isCritical: supplier?.isCritical ?? false,
+            acceptsPostponement: supplier?.acceptsPostponement ?? false,
+          })
+        : null
+    const newDedupKey = computeDedupKey(
+      companyId,
+      m.row.supplier_code,
+      m.row.document_number,
+      m.row.due_date,
+      m.row.amount_cents
+    )
+    const { error: updErr } = await supabase
+      .from('payment_schedule')
+      .update({
+        due_date: m.row.due_date,
+        amount_cents: m.row.amount_cents,
+        amount_in_cents: m.row.amount_in_cents,
+        amount_out_cents: m.row.amount_out_cents,
+        bank_description: m.row.bank_description,
+        payment_method: m.row.payment_method,
+        priority_score: priorityScore,
+        import_batch_id: batch.id,
+        dedup_key: newDedupKey,
+      })
+      .eq('id', m.dbId)
+    if (!updErr) rowsModified++
+  }
+
+  // 10. Marca come pagate le "sparite" selezionate dall'utente
+  let rowsMarkedPaid = 0
+  if (safeMarkPaidIds.length > 0) {
+    const { error: paidErr } = await supabase
+      .from('payment_schedule')
+      .update({ status: 'paid' })
+      .in('id', safeMarkPaidIds)
+      .eq('company_id', companyId)
+    if (!paidErr) rowsMarkedPaid = safeMarkPaidIds.length
+  }
+
+  // 11. Aggiorna batch
   await supabase
     .from('import_batches')
     .update({ rows_imported: rows.length, rows_new: rowsNew, status: 'completed' })
     .eq('id', batch.id)
 
   revalidatePath('/schedule')
-  return { rowsNew, rowsSkipped, suppliersNew }
+  return { rowsNew, rowsModified, rowsMarkedPaid, rowsSkipped, suppliersNew }
 }

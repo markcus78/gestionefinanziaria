@@ -167,3 +167,13 @@ export function computeDedupKey(
     amountCents.toString(),
   ].join('|')
 }
+
+// Chiave stabile per matching incrementale: fornitore + numero doc + data emissione
+// Ritorna null se manca supplier_code o document_number (riga non matchabile)
+export function buildMatchKey(
+  companyId: string,
+  row: Pick<ParsedRow, 'supplier_code' | 'document_number' | 'document_date'>
+): string | null {
+  if (!row.supplier_code || !row.document_number) return null
+  return [companyId, row.supplier_code, row.document_number, row.document_date ?? ''].join('|')
+}

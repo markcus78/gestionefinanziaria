@@ -4,10 +4,11 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Upload, FileSpreadsheet, CheckCircle, ArrowLeft, Loader2,
-  AlertCircle, FileX, FileCheck,
+  AlertCircle, FileX, FileCheck, Plus, Pencil, Trash2, Equal,
 } from 'lucide-react'
-import { parseFileAction, importBatchAction } from './actions'
-import type { ParseStats } from '@/lib/xls-parser'
+import { parseFileAction, diffPreviewAction, importIncrementalAction } from './actions'
+import type { ParseStats, ParsedRow } from '@/lib/xls-parser'
+import type { FileDiffResult, DiffModified, DiffRemoved } from './actions'
 
 const COMPANIES = [
   { code: '', name: '— seleziona —' },
@@ -17,8 +18,6 @@ const COMPANIES = [
   { code: 'ARIES', name: 'Aries Global Service' },
 ]
 
-// Rileva il codice società dal nome del file (es. WTFLUSSISCADENZARIO.XLS → WT)
-// Ordine importante: prima quelli più lunghi per evitare match parziali
 const DETECT_ORDER = ['APPIAE', 'HANGAR', 'ARIES', 'WT']
 function detectCompany(fileName: string): string {
   const upper = fileName.toUpperCase()
@@ -32,16 +31,30 @@ function formatEur(cents: number) {
   return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100)
 }
 
-type Step = 'upload' | 'preview' | 'done'
+function formatDate(iso: string) {
+  return new Intl.DateTimeFormat('it-IT').format(new Date(iso))
+}
+
+type Step = 'upload' | 'preview' | 'diff' | 'done'
 
 type FileParsed =
   | { ok: true;  fileName: string; stats: ParseStats; allRowsJson: string }
   | { ok: false; fileName: string; error: string }
 
+type FileDiff = {
+  fileName: string
+  companyCode: string
+  allRowsJson: string
+  result: FileDiffResult
+  selectedRemovedIds: string[]
+}
+
 type FileImported = {
   fileName: string
   companyName: string
   rowsNew: number
+  rowsModified: number
+  rowsMarkedPaid: number
   rowsSkipped: number
   suppliersNew: number
 }
@@ -50,12 +63,12 @@ export default function ImportPage() {
   const router = useRouter()
   const [step, setStep] = useState<Step>('upload')
   const [isParsing, setIsParsing] = useState(false)
-  const [isImporting, setIsImporting] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
   const [parseProgress, setParseProgress] = useState<{ current: number; total: number } | null>(null)
-  const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null)
+  const [processProgress, setProcessProgress] = useState<{ current: number; total: number } | null>(null)
   const [parsed, setParsed] = useState<FileParsed[]>([])
-  // fileCompanies[i] = codice società per parsed[i] (solo per file ok)
   const [fileCompanies, setFileCompanies] = useState<string[]>([])
+  const [diffs, setDiffs] = useState<FileDiff[]>([])
   const [imported, setImported] = useState<FileImported[]>([])
   const [globalError, setGlobalError] = useState<string | null>(null)
 
@@ -72,7 +85,6 @@ export default function ImportPage() {
     setParseProgress({ current: 0, total: files.length })
 
     const results: FileParsed[] = []
-
     for (let i = 0; i < files.length; i++) {
       setParseProgress({ current: i + 1, total: files.length })
       const fd = new FormData()
@@ -86,61 +98,111 @@ export default function ImportPage() {
     }
 
     setParsed(results)
-    // auto-rileva la società per ogni file
     setFileCompanies(results.map(r => detectCompany(r.fileName)))
     setIsParsing(false)
     setParseProgress(null)
     setStep('preview')
   }
 
-  // ── STEP 2: importa ─────────────────────────────────────────────────────
-  async function handleImport() {
+  // ── STEP 2: calcola diff ─────────────────────────────────────────────────
+  async function handleDiffPreview() {
     setGlobalError(null)
-    setIsImporting(true)
+    setIsProcessing(true)
 
-    // solo i file ok con società assegnata
-    const toImport = parsed
+    const toProcess = parsed
       .map((fp, i) => ({ fp, company: fileCompanies[i] ?? '' }))
       .filter(({ fp, company }) => fp.ok && !!company) as Array<{
         fp: Extract<FileParsed, { ok: true }>
         company: string
       }>
 
-    if (!toImport.length) {
-      setGlobalError('Nessun file pronto per l\'importazione.')
-      setIsImporting(false)
-      return
-    }
+    setProcessProgress({ current: 0, total: toProcess.length })
 
-    setImportProgress({ current: 0, total: toImport.length })
-
-    const results: FileImported[] = []
-
-    for (let i = 0; i < toImport.length; i++) {
-      setImportProgress({ current: i + 1, total: toImport.length })
-      const { fp, company } = toImport[i]
-      const companyName = COMPANIES.find(c => c.code === company)?.name ?? company
-      const res = await importBatchAction(company, fp.allRowsJson, fp.fileName)
+    const results: FileDiff[] = []
+    for (let i = 0; i < toProcess.length; i++) {
+      setProcessProgress({ current: i + 1, total: toProcess.length })
+      const { fp, company } = toProcess[i]
+      const res = await diffPreviewAction(company, fp.allRowsJson)
       if ('error' in res) {
         setGlobalError(`Errore su "${fp.fileName}": ${res.error}`)
-        setIsImporting(false)
-        setImportProgress(null)
+        setIsProcessing(false)
+        setProcessProgress(null)
         return
       }
-      results.push({ fileName: fp.fileName, companyName, ...res })
+      results.push({
+        fileName: fp.fileName,
+        companyCode: company,
+        allRowsJson: fp.allRowsJson,
+        result: res,
+        selectedRemovedIds: res.removed.map(r => r.dbId),
+      })
+    }
+
+    setDiffs(results)
+    setIsProcessing(false)
+    setProcessProgress(null)
+    setStep('diff')
+  }
+
+  function toggleRemoved(fileIdx: number, dbId: string) {
+    setDiffs(prev => prev.map((d, i) => {
+      if (i !== fileIdx) return d
+      const already = d.selectedRemovedIds.includes(dbId)
+      return {
+        ...d,
+        selectedRemovedIds: already
+          ? d.selectedRemovedIds.filter(id => id !== dbId)
+          : [...d.selectedRemovedIds, dbId],
+      }
+    }))
+  }
+
+  function toggleAllRemoved(fileIdx: number, selectAll: boolean) {
+    setDiffs(prev => prev.map((d, i) => {
+      if (i !== fileIdx) return d
+      return {
+        ...d,
+        selectedRemovedIds: selectAll ? d.result.removed.map(r => r.dbId) : [],
+      }
+    }))
+  }
+
+  // ── STEP 3: importa ──────────────────────────────────────────────────────
+  async function handleImport() {
+    setGlobalError(null)
+    setIsProcessing(true)
+    setProcessProgress({ current: 0, total: diffs.length })
+
+    const results: FileImported[] = []
+    for (let i = 0; i < diffs.length; i++) {
+      setProcessProgress({ current: i + 1, total: diffs.length })
+      const diff = diffs[i]
+      const companyName = COMPANIES.find(c => c.code === diff.companyCode)?.name ?? diff.companyCode
+      const res = await importIncrementalAction(
+        diff.companyCode,
+        diff.allRowsJson,
+        diff.fileName,
+        diff.selectedRemovedIds
+      )
+      if ('error' in res) {
+        setGlobalError(`Errore su "${diff.fileName}": ${res.error}`)
+        setIsProcessing(false)
+        setProcessProgress(null)
+        return
+      }
+      results.push({ fileName: diff.fileName, companyName, ...res })
     }
 
     setImported(results)
-    setIsImporting(false)
-    setImportProgress(null)
+    setIsProcessing(false)
+    setProcessProgress(null)
     setStep('done')
   }
 
-  // validazione: tutti i file ok devono avere una società selezionata
+  // ── Variabili derivate ───────────────────────────────────────────────────
   const validParsed = parsed.filter((p): p is Extract<FileParsed, { ok: true }> => p.ok)
   const errorParsed = parsed.filter(p => !p.ok)
   const readyToImport = validParsed.filter((_, i) => {
-    // indice in parsed (i file ok sono i primi ok nel array)
     const parsedIdx = parsed.indexOf(validParsed[i])
     return !!fileCompanies[parsedIdx]
   })
@@ -149,12 +211,20 @@ export default function ImportPage() {
   const totalRows    = readyToImport.reduce((s, p) => s + p.stats.total, 0)
   const totalOut     = readyToImport.reduce((s, p) => s + p.stats.totalOutCents, 0)
   const totalOverdue = readyToImport.reduce((s, p) => s + p.stats.overdue, 0)
-  const totalNew     = imported.reduce((s, r) => s + r.rowsNew, 0)
-  const totalSkipped = imported.reduce((s, r) => s + r.rowsSkipped, 0)
-  const totalSupNew  = imported.reduce((s, r) => s + r.suppliersNew, 0)
+
+  const totalNew      = imported.reduce((s, r) => s + r.rowsNew, 0)
+  const totalModified = imported.reduce((s, r) => s + r.rowsModified, 0)
+  const totalPaid     = imported.reduce((s, r) => s + r.rowsMarkedPaid, 0)
+  const totalSkipped  = imported.reduce((s, r) => s + r.rowsSkipped, 0)
+  const totalSupNew   = imported.reduce((s, r) => s + r.suppliersNew, 0)
+
+  const totalDiffAdded    = diffs.reduce((s, d) => s + d.result.added.length + d.result.alwaysNew.length, 0)
+  const totalDiffModified = diffs.reduce((s, d) => s + d.result.modified.length, 0)
+  const totalDiffRemoved  = diffs.reduce((s, d) => s + d.result.removed.length, 0)
+  const totalDiffSelected = diffs.reduce((s, d) => s + d.selectedRemovedIds.length, 0)
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="p-6 max-w-4xl">
 
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
@@ -170,25 +240,25 @@ export default function ImportPage() {
 
       {/* Step indicator */}
       <div className="flex items-center gap-2 mb-8 text-sm">
-        {(['upload', 'preview', 'done'] as const).map((s, i) => (
-          <div key={s} className="flex items-center gap-2">
-            {i > 0 && <div className="w-8 h-px bg-zinc-700" />}
-            <div className={`flex items-center gap-1.5 ${
-              step === s ? 'text-indigo-400'
-              : step === 'done' || (step === 'preview' && i === 0) ? 'text-zinc-500'
-              : 'text-zinc-600'
-            }`}>
-              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
-                step === s ? 'bg-indigo-600 text-white'
-                : (step === 'preview' && i === 0) || step === 'done' ? 'bg-zinc-700 text-zinc-400'
-                : 'bg-zinc-800 text-zinc-600'
-              }`}>
-                {i + 1}
+        {(['upload', 'preview', 'diff', 'done'] as const).map((s, i) => {
+          const labels = { upload: 'Carica file', preview: 'Anteprima', diff: 'Differenze', done: 'Completato' }
+          const stepIdx = ['upload', 'preview', 'diff', 'done'].indexOf(step)
+          const isActive = step === s
+          const isDone = stepIdx > i
+          return (
+            <div key={s} className="flex items-center gap-2">
+              {i > 0 && <div className="w-8 h-px bg-zinc-700" />}
+              <div className={`flex items-center gap-1.5 ${isActive ? 'text-indigo-400' : isDone ? 'text-zinc-500' : 'text-zinc-600'}`}>
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
+                  isActive ? 'bg-indigo-600 text-white' : isDone ? 'bg-zinc-700 text-zinc-400' : 'bg-zinc-800 text-zinc-600'
+                }`}>
+                  {i + 1}
+                </div>
+                <span>{labels[s]}</span>
               </div>
-              <span>{s === 'upload' ? 'Carica file' : s === 'preview' ? 'Anteprima' : 'Completato'}</span>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {globalError && (
@@ -257,7 +327,6 @@ export default function ImportPage() {
       {step === 'preview' && (
         <div className="space-y-5">
 
-          {/* Totali sui file pronti */}
           {readyToImport.length > 0 && (
             <div className="grid grid-cols-4 gap-3">
               {[
@@ -274,24 +343,17 @@ export default function ImportPage() {
             </div>
           )}
 
-          {/* Lista file con selettore società */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
-              <p className="text-sm font-medium text-zinc-200">
-                {parsed.length} file analizzati
-              </p>
+              <p className="text-sm font-medium text-zinc-200">{parsed.length} file analizzati</p>
               {missingCompany > 0 && (
-                <p className="text-xs text-amber-400">
-                  {missingCompany} {missingCompany === 1 ? 'file senza società' : 'file senza società'}
-                </p>
+                <p className="text-xs text-amber-400">{missingCompany} file senza società</p>
               )}
             </div>
 
             <div className="divide-y divide-zinc-800/60">
               {parsed.map((fp, i) => (
                 <div key={i} className="px-4 py-3 flex items-start gap-3">
-
-                  {/* Icona stato */}
                   {fp.ok ? (
                     fileCompanies[i]
                       ? <FileCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-2" />
@@ -300,7 +362,6 @@ export default function ImportPage() {
                     <FileX className="w-4 h-4 text-red-400 shrink-0 mt-2" />
                   )}
 
-                  {/* Nome file + stats */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-zinc-200 truncate">{fp.fileName}</p>
                     {fp.ok ? (
@@ -318,7 +379,6 @@ export default function ImportPage() {
                     )}
                   </div>
 
-                  {/* Selettore società (solo per file ok) */}
                   {fp.ok ? (
                     <div className="shrink-0">
                       <select
@@ -343,21 +403,19 @@ export default function ImportPage() {
                   ) : (
                     <span className="text-xs text-red-400 shrink-0 mt-2">saltato</span>
                   )}
-
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Import progress */}
-          {isImporting && importProgress && (
+          {isProcessing && processProgress && (
             <div className="flex items-center gap-3 text-sm text-zinc-400">
               <Loader2 className="w-4 h-4 animate-spin text-indigo-400 shrink-0" />
-              <span>Importazione file {importProgress.current}/{importProgress.total}...</span>
+              <span>Calcolo differenze {processProgress.current}/{processProgress.total}...</span>
               <div className="flex-1 bg-zinc-800 rounded-full h-1.5">
                 <div
                   className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
-                  style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                  style={{ width: `${(processProgress.current / processProgress.total) * 100}%` }}
                 />
               </div>
             </div>
@@ -365,21 +423,21 @@ export default function ImportPage() {
 
           <div className="flex gap-3">
             <button
-              onClick={handleImport}
-              disabled={isImporting || readyToImport.length === 0}
+              onClick={handleDiffPreview}
+              disabled={isProcessing || readyToImport.length === 0}
               className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
             >
-              {isImporting && <Loader2 className="w-4 h-4 animate-spin" />}
-              {isImporting
-                ? 'Importazione in corso...'
+              {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
+              {isProcessing
+                ? 'Calcolo in corso...'
                 : readyToImport.length === 0
                   ? 'Assegna una società a ogni file'
-                  : `Importa ${readyToImport.length === 1 ? '1 file' : `${readyToImport.length} file`} (${totalRows} righe)`
+                  : `Calcola differenze (${readyToImport.length === 1 ? '1 file' : `${readyToImport.length} file`})`
               }
             </button>
             <button
               onClick={() => { setStep('upload'); setParsed([]); setFileCompanies([]) }}
-              disabled={isImporting}
+              disabled={isProcessing}
               className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm rounded-lg transition-colors"
             >
               Annulla
@@ -388,7 +446,233 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ── STEP 3: Done ───────────────────────────────────────────────────── */}
+      {/* ── STEP 3: Diff ───────────────────────────────────────────────────── */}
+      {step === 'diff' && (
+        <div className="space-y-6">
+
+          {/* Riepilogo globale */}
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              { label: 'Nuove', value: totalDiffAdded, color: 'text-emerald-400', icon: Plus },
+              { label: 'Modificate', value: totalDiffModified, color: 'text-amber-400', icon: Pencil },
+              { label: 'Sparite', value: `${totalDiffSelected}/${totalDiffRemoved}`, color: 'text-red-400', icon: Trash2 },
+              { label: 'Invariate', value: diffs.reduce((s, d) => s + d.result.unchanged, 0), color: 'text-zinc-400', icon: Equal },
+            ].map(({ label, value, color, icon: Icon }) => (
+              <div key={label} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Icon className={`w-3.5 h-3.5 ${color}`} />
+                  <p className="text-xs text-zinc-400">{label}</p>
+                </div>
+                <p className={`text-xl font-semibold ${color}`}>{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Diff per file */}
+          {diffs.map((diff, fileIdx) => {
+            const companyName = COMPANIES.find(c => c.code === diff.companyCode)?.name ?? diff.companyCode
+            const newCount = diff.result.added.length + diff.result.alwaysNew.length
+            const modCount = diff.result.modified.length
+            const remCount = diff.result.removed.length
+            const selCount = diff.selectedRemovedIds.length
+
+            return (
+              <div key={fileIdx} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-zinc-200">{diff.fileName}</p>
+                    <p className="text-xs text-zinc-500 mt-0.5">{companyName}</p>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs">
+                    {newCount > 0 && <span className="text-emerald-400">+{newCount} nuove</span>}
+                    {modCount > 0 && <span className="text-amber-400">~{modCount} modificate</span>}
+                    {remCount > 0 && <span className="text-red-400">{selCount}/{remCount} sparite</span>}
+                    {diff.result.unchanged > 0 && <span className="text-zinc-600">={diff.result.unchanged} invariate</span>}
+                  </div>
+                </div>
+
+                <div className="divide-y divide-zinc-800/60">
+
+                  {/* Nuove */}
+                  {newCount > 0 && (
+                    <details className="group">
+                      <summary className="px-4 py-3 flex items-center gap-2 cursor-pointer text-sm text-emerald-400 hover:bg-zinc-800/40 select-none list-none">
+                        <Plus className="w-3.5 h-3.5 shrink-0" />
+                        <span className="font-medium">{newCount} nuove partite</span>
+                        <span className="text-zinc-500 text-xs ml-auto group-open:hidden">espandi</span>
+                        <span className="text-zinc-500 text-xs ml-auto hidden group-open:inline">riduci</span>
+                      </summary>
+                      <div className="px-4 pb-3 overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-zinc-500 border-b border-zinc-800">
+                              <th className="text-left pb-1.5 pr-3 font-medium">Fornitore</th>
+                              <th className="text-left pb-1.5 pr-3 font-medium">Documento</th>
+                              <th className="text-left pb-1.5 pr-3 font-medium">Scadenza</th>
+                              <th className="text-right pb-1.5 font-medium">Importo</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-800/40">
+                            {[...diff.result.added, ...diff.result.alwaysNew].slice(0, 50).map((row, j) => (
+                              <tr key={j} className="text-zinc-300">
+                                <td className="py-1.5 pr-3 truncate max-w-[160px]">{row.supplier_name ?? '—'}</td>
+                                <td className="py-1.5 pr-3 text-zinc-500">{row.document_number ?? '—'}</td>
+                                <td className="py-1.5 pr-3 tabular-nums">{formatDate(row.due_date)}</td>
+                                <td className={`py-1.5 text-right tabular-nums ${row.flow_type === 'out' ? 'text-red-400' : 'text-emerald-400'}`}>
+                                  {formatEur(Math.abs(row.amount_cents))}
+                                </td>
+                              </tr>
+                            ))}
+                            {newCount > 50 && (
+                              <tr><td colSpan={4} className="py-1.5 text-zinc-600 italic">... e altri {newCount - 50}</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  )}
+
+                  {/* Modificate */}
+                  {modCount > 0 && (
+                    <details className="group">
+                      <summary className="px-4 py-3 flex items-center gap-2 cursor-pointer text-sm text-amber-400 hover:bg-zinc-800/40 select-none list-none">
+                        <Pencil className="w-3.5 h-3.5 shrink-0" />
+                        <span className="font-medium">{modCount} partite modificate</span>
+                        <span className="text-zinc-500 text-xs ml-auto group-open:hidden">espandi</span>
+                        <span className="text-zinc-500 text-xs ml-auto hidden group-open:inline">riduci</span>
+                      </summary>
+                      <div className="px-4 pb-3 overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-zinc-500 border-b border-zinc-800">
+                              <th className="text-left pb-1.5 pr-3 font-medium">Fornitore</th>
+                              <th className="text-left pb-1.5 pr-3 font-medium">Documento</th>
+                              <th className="text-left pb-1.5 pr-3 font-medium">Scadenza</th>
+                              <th className="text-right pb-1.5 pr-3 font-medium">Importo</th>
+                              <th className="text-left pb-1.5 pr-3 font-medium pl-3 border-l border-zinc-800">→ Scadenza</th>
+                              <th className="text-right pb-1.5 font-medium">→ Importo</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-800/40">
+                            {diff.result.modified.map((m: DiffModified) => (
+                              <tr key={m.dbId} className="text-zinc-300">
+                                <td className="py-1.5 pr-3 truncate max-w-[140px]">{m.row.supplier_name ?? '—'}</td>
+                                <td className="py-1.5 pr-3 text-zinc-500">{m.row.document_number ?? '—'}</td>
+                                <td className="py-1.5 pr-3 tabular-nums text-zinc-500 line-through">{formatDate(m.dbDueDate)}</td>
+                                <td className="py-1.5 pr-3 tabular-nums text-zinc-500 line-through text-right">{formatEur(Math.abs(m.dbAmountCents))}</td>
+                                <td className="py-1.5 pr-3 tabular-nums text-amber-400 pl-3 border-l border-zinc-800">
+                                  {m.row.due_date !== m.dbDueDate ? formatDate(m.row.due_date) : <span className="text-zinc-600">invariata</span>}
+                                </td>
+                                <td className="py-1.5 tabular-nums text-amber-400 text-right">
+                                  {m.row.amount_cents !== m.dbAmountCents ? formatEur(Math.abs(m.row.amount_cents)) : <span className="text-zinc-600">invariato</span>}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  )}
+
+                  {/* Sparite */}
+                  {remCount > 0 && (
+                    <div className="px-4 py-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-sm text-red-400">
+                          <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                          <span className="font-medium">{remCount} partite non più presenti nel file</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          <button
+                            onClick={() => toggleAllRemoved(fileIdx, true)}
+                            className="text-zinc-400 hover:text-zinc-200"
+                          >
+                            Tutte
+                          </button>
+                          <span className="text-zinc-700">·</span>
+                          <button
+                            onClick={() => toggleAllRemoved(fileIdx, false)}
+                            className="text-zinc-400 hover:text-zinc-200"
+                          >
+                            Nessuna
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-zinc-500 mb-3">
+                        Seleziona quelle da marcare come pagate. Deseleziona se non erano ancora pagate.
+                      </p>
+                      <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                        {diff.result.removed.map((r: DiffRemoved) => {
+                          const selected = diff.selectedRemovedIds.includes(r.dbId)
+                          return (
+                            <label
+                              key={r.dbId}
+                              className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-xs transition-colors ${
+                                selected ? 'bg-red-500/10 border border-red-500/20' : 'bg-zinc-800/50 border border-transparent hover:bg-zinc-800'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => toggleRemoved(fileIdx, r.dbId)}
+                                className="w-3.5 h-3.5 accent-red-500 shrink-0"
+                              />
+                              <span className="flex-1 truncate text-zinc-300">{r.supplierName ?? r.documentNumber ?? r.dbId}</span>
+                              <span className="text-zinc-500 tabular-nums shrink-0">{r.documentNumber}</span>
+                              <span className="text-zinc-500 tabular-nums shrink-0">{formatDate(r.dueDate)}</span>
+                              <span className="text-red-400 tabular-nums shrink-0">{formatEur(Math.abs(r.amountCents))}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {newCount === 0 && modCount === 0 && remCount === 0 && (
+                    <div className="px-4 py-6 text-center text-sm text-zinc-500">
+                      Nessuna differenza — tutti i dati sono già aggiornati.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Progress */}
+          {isProcessing && processProgress && (
+            <div className="flex items-center gap-3 text-sm text-zinc-400">
+              <Loader2 className="w-4 h-4 animate-spin text-indigo-400 shrink-0" />
+              <span>Importazione file {processProgress.current}/{processProgress.total}...</span>
+              <div className="flex-1 bg-zinc-800 rounded-full h-1.5">
+                <div
+                  className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${(processProgress.current / processProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleImport}
+              disabled={isProcessing}
+              className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
+              {isProcessing ? 'Importazione in corso...' : 'Conferma importazione'}
+            </button>
+            <button
+              onClick={() => setStep('preview')}
+              disabled={isProcessing}
+              className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm rounded-lg transition-colors"
+            >
+              Indietro
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── STEP 4: Done ───────────────────────────────────────────────────── */}
       {step === 'done' && imported.length > 0 && (
         <div className="space-y-4">
 
@@ -397,23 +681,34 @@ export default function ImportPage() {
             <h2 className="text-base font-semibold text-zinc-100">
               {imported.length === 1 ? '1 file importato' : `${imported.length} file importati`}
             </h2>
-            <div className="flex justify-center gap-8 text-sm">
+            <div className="flex justify-center gap-6 text-sm flex-wrap">
               <div>
                 <p className="text-2xl font-bold text-emerald-400">{totalNew}</p>
-                <p className="text-zinc-400">nuove partite</p>
+                <p className="text-zinc-400">nuove</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-zinc-400">{totalSkipped}</p>
-                <p className="text-zinc-400">già presenti</p>
+                <p className="text-2xl font-bold text-amber-400">{totalModified}</p>
+                <p className="text-zinc-400">aggiornate</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-indigo-400">{totalSupNew}</p>
-                <p className="text-zinc-400">nuovi fornitori</p>
+                <p className="text-2xl font-bold text-red-400">{totalPaid}</p>
+                <p className="text-zinc-400">marcate pagate</p>
               </div>
+              {totalSkipped > 0 && (
+                <div>
+                  <p className="text-2xl font-bold text-zinc-500">{totalSkipped}</p>
+                  <p className="text-zinc-400">già presenti</p>
+                </div>
+              )}
+              {totalSupNew > 0 && (
+                <div>
+                  <p className="text-2xl font-bold text-indigo-400">{totalSupNew}</p>
+                  <p className="text-zinc-400">nuovi fornitori</p>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Dettaglio per file */}
           {imported.length > 1 && (
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
               <div className="px-4 py-3 border-b border-zinc-800">
@@ -427,9 +722,10 @@ export default function ImportPage() {
                       <p className="text-zinc-300 truncate">{r.fileName}</p>
                       <p className="text-xs text-zinc-500">{r.companyName}</p>
                     </div>
-                    <span className="text-emerald-400 font-medium tabular-nums">{r.rowsNew} nuove</span>
+                    {r.rowsNew > 0 && <span className="text-emerald-400 font-medium tabular-nums">+{r.rowsNew}</span>}
+                    {r.rowsModified > 0 && <span className="text-amber-400 tabular-nums">~{r.rowsModified}</span>}
+                    {r.rowsMarkedPaid > 0 && <span className="text-red-400 tabular-nums">{r.rowsMarkedPaid} paid</span>}
                     {r.rowsSkipped > 0 && <span className="text-zinc-600 tabular-nums">{r.rowsSkipped} skip</span>}
-                    {r.suppliersNew > 0 && <span className="text-indigo-400 tabular-nums">{r.suppliersNew} forn.</span>}
                   </div>
                 ))}
               </div>
@@ -444,7 +740,7 @@ export default function ImportPage() {
               Vai allo Scadenzario
             </button>
             <button
-              onClick={() => { setStep('upload'); setParsed([]); setImported([]); setFileCompanies([]) }}
+              onClick={() => { setStep('upload'); setParsed([]); setImported([]); setFileCompanies([]); setDiffs([]) }}
               className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm rounded-lg transition-colors"
             >
               Importa altri file
