@@ -49,31 +49,3 @@ export async function upsertRevenueForecast(
   return { success: true }
 }
 
-// ── Expense forecast (manuale per categoria) ───────────────────────────────────
-
-export async function upsertExpenseForecast(
-  companyId: string,
-  category: string,
-  year: number,
-  month: number,
-  cents: number
-) {
-  const supabase = await createClient()
-  const { error } = await supabase
-    .from('expense_forecasts')
-    .upsert(
-      {
-        company_id: companyId,
-        category,
-        year,
-        month,
-        forecast_cents: cents,
-        source: 'manual' as const,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'company_id,category,year,month' }
-    )
-  if (error) return { error: error.message }
-  revalidatePath('/forecast')
-  return { success: true }
-}

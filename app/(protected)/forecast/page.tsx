@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation'
 import { TrendingUp } from 'lucide-react'
 import ForecastClient from './forecast-client'
 import { MONTHS_SHORT } from '@/lib/channel-utils'
-import type { ExpenseForecast } from '@/lib/types/database'
 
 export type ForecastMonth = {
   year: number
@@ -11,8 +10,7 @@ export type ForecastMonth = {
   label: string
   revenueForecasted: number    // sum monthly_revenue_forecasts (channel_id IS NULL)
   outflowScheduled: number     // sum payment_schedule (pending/scheduled, flow=out)
-  outflowExpenses: number      // sum expense_forecasts
-  netFlow: number              // revenueForecasted - outflowScheduled - outflowExpenses
+  netFlow: number              // revenueForecasted - outflowScheduled
   balanceEnd: number           // saldo cumulativo
 }
 
@@ -49,7 +47,6 @@ export default async function ForecastPage({
 
   const view        = (sp.view    ?? 'single') as 'single' | 'consolidated'
   const companyCode = sp.company  ?? ''
-  const tab         = sp.tab      ?? 'cashflow'
 
   const now     = new Date()
   const months6 = get6Months(now)
@@ -62,7 +59,6 @@ export default async function ForecastPage({
     { data: companies },
     { data: allBankAccounts },
     { data: revenueForecasts },
-    { data: expenseForecastsRaw },
     { data: paymentsRaw },
   ] = await Promise.all([
     supabase
@@ -75,11 +71,6 @@ export default async function ForecastPage({
       .from('monthly_revenue_forecasts')
       .select('company_id, year, month, forecast_gross_cents')
       .is('channel_id', null)
-      .in('year', years)
-      .in('month', monthNums),
-    supabase
-      .from('expense_forecasts')
-      .select('*')
       .in('year', years)
       .in('month', monthNums),
     supabase
@@ -115,22 +106,13 @@ export default async function ForecastPage({
       })
       .reduce((s, p) => s + Math.abs(p.amount_cents ?? 0), 0)
 
-    const outflowExpenses = (expenseForecastsRaw ?? [])
-      .filter(f => scopeIds.has(f.company_id) && f.year === year && f.month === month)
-      .reduce((s, f) => s + ((f as { forecast_cents: number }).forecast_cents ?? 0), 0)
-
-    const netFlow = revenueForecasted - outflowScheduled - outflowExpenses
+    const netFlow = revenueForecasted - outflowScheduled
     cumBalance += netFlow
 
-    return { year, month, label, revenueForecasted, outflowScheduled, outflowExpenses, netFlow, balanceEnd: cumBalance }
+    return { year, month, label, revenueForecasted, outflowScheduled, netFlow, balanceEnd: cumBalance }
   })
 
   const threshold = scopeCompanies.reduce((s, c) => s + (c.minimum_cash_threshold_cents ?? 0), 0)
-
-  // expense_forecasts filtrate allo scope corrente (tutte le società incluse)
-  const expenseForecasts = (expenseForecastsRaw ?? []).filter(f =>
-    scopeIds.has(f.company_id)
-  ) as ExpenseForecast[]
 
   return (
     <div className="p-6 max-w-7xl">
@@ -143,9 +125,7 @@ export default async function ForecastPage({
         companies={allCompanies}
         company={company}
         view={view}
-        tab={tab}
         forecastMonths={forecastMonths}
-        expenseForecasts={expenseForecasts}
         initialBalance={initialBalance}
         threshold={threshold}
       />

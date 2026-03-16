@@ -46,7 +46,7 @@ export default function CashflowTab({ forecastMonths, initialBalance, threshold,
   const computed = forecastMonths.map(m => {
     const key = `${m.year}-${m.month}`
     const revenue = canEdit ? parseCents(revenueValues[key] ?? '0') : m.revenueForecasted
-    const netFlow = revenue - m.outflowScheduled - m.outflowExpenses
+    const netFlow = revenue - m.outflowScheduled
     running += netFlow
     return { ...m, revenueLocal: revenue, netFlow, balanceEnd: running }
   })
@@ -170,33 +170,6 @@ export default function CashflowTab({ forecastMonths, initialBalance, threshold,
               ))}
             </tr>
 
-            {/* Spese stimate — sola lettura */}
-            <tr className="border-b border-zinc-800/50 hover:bg-zinc-800/20">
-              <td className="px-4 py-2.5 text-zinc-400">Spese stimate</td>
-              {computed.map(m => (
-                <td key={`${m.year}-${m.month}`} className="px-3 py-2.5 text-right text-red-300/80 tabular-nums">
-                  {m.outflowExpenses > 0
-                    ? formatEur(m.outflowExpenses)
-                    : <span className="text-zinc-600">—</span>
-                  }
-                </td>
-              ))}
-            </tr>
-
-            {/* Totale uscite — calcolato */}
-            <tr className="border-b border-zinc-800/50 bg-zinc-800/20">
-              <td className="px-4 py-2.5 text-zinc-400 text-xs font-medium uppercase tracking-wide">
-                Totale uscite
-              </td>
-              {computed.map(m => {
-                const total = m.outflowScheduled + m.outflowExpenses
-                return (
-                  <td key={`${m.year}-${m.month}`} className="px-3 py-2.5 text-right text-red-400 font-medium tabular-nums">
-                    {total > 0 ? formatEur(total) : <span className="text-zinc-600">—</span>}
-                  </td>
-                )
-              })}
-            </tr>
           </tbody>
 
           <tfoot>

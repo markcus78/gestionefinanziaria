@@ -2,9 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import CashflowTab from './cashflow-tab'
-import ExpensesTab from './expenses-tab'
 import type { ForecastMonth } from './page'
-import type { ExpenseForecast } from '@/lib/types/database'
 
 type Company = { id: string; code: string; name: string; minimum_cash_threshold_cents: number }
 
@@ -12,9 +10,7 @@ type Props = {
   companies: Company[]
   company: Company | null
   view: 'single' | 'consolidated'
-  tab: string
   forecastMonths: ForecastMonth[]
-  expenseForecasts: ExpenseForecast[]
   initialBalance: number
   threshold: number
 }
@@ -24,9 +20,8 @@ function formatEur(cents: number) {
 }
 
 export default function ForecastClient({
-  companies, company, view, tab,
-  forecastMonths, expenseForecasts,
-  initialBalance, threshold,
+  companies, company, view,
+  forecastMonths, initialBalance, threshold,
 }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
@@ -87,46 +82,14 @@ export default function ForecastClient({
         </div>
       </div>
 
-      {/* Tab nav */}
-      <div className="flex gap-0 border-b border-zinc-800">
-        {[
-          { id: 'cashflow', label: 'Cashflow' },
-          { id: 'spese', label: 'Spese stimate' },
-        ].map(t => (
-          <button
-            key={t.id}
-            onClick={() => navigate({ tab: t.id })}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t.id
-                ? 'border-violet-500 text-zinc-100'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
-      {tab === 'cashflow' && (
-        <CashflowTab
-          key={`cashflow-${view}-${company?.id ?? 'all'}`}
-          forecastMonths={forecastMonths}
-          initialBalance={initialBalance}
-          threshold={threshold}
-          company={company}
-          view={view}
-        />
-      )}
-      {tab === 'spese' && (
-        <ExpensesTab
-          key={`spese-${view}-${company?.id ?? 'all'}`}
-          forecastMonths={forecastMonths}
-          expenseForecasts={expenseForecasts}
-          company={company}
-          view={view}
-        />
-      )}
+      <CashflowTab
+        key={`cashflow-${view}-${company?.id ?? 'all'}`}
+        forecastMonths={forecastMonths}
+        initialBalance={initialBalance}
+        threshold={threshold}
+        company={company}
+        view={view}
+      />
     </div>
   )
 }
