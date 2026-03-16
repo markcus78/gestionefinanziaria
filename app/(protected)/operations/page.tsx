@@ -48,6 +48,7 @@ export default async function OperationsPage({
     { data: channelConfigsRaw },
     { data: collectionsRaw },
     { data: pendingSettlementsRaw },
+    { data: forecastRow },
   ] = await Promise.all([
     supabase
       .from('company_cash_channels')
@@ -68,7 +69,17 @@ export default async function OperationsPage({
       .eq('is_settled', false)
       .not('settlement_expected_date', 'is', null)
       .order('settlement_expected_date'),
+    supabase
+      .from('monthly_revenue_forecasts')
+      .select('forecast_gross_cents')
+      .eq('company_id', companyId)
+      .eq('year', year)
+      .eq('month', month)
+      .is('channel_id', null)
+      .maybeSingle(),
   ])
+
+  const forecastCents = forecastRow?.forecast_gross_cents ?? 0
 
   return (
     <div className="p-6 max-w-5xl">
@@ -83,6 +94,7 @@ export default async function OperationsPage({
         channelConfigs={(channelConfigsRaw ?? []) as ChannelConfig[]}
         collections={(collectionsRaw ?? []) as CollectionWithChannel[]}
         pendingSettlements={(pendingSettlementsRaw ?? []) as CollectionWithChannel[]}
+        forecastCents={forecastCents}
         year={year}
         month={month}
         tab={tab}

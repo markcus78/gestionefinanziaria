@@ -1,6 +1,10 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
+
+function formatEur(cents: number) {
+  return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(cents / 100)
+}
 import { MONTHS_SHORT } from '@/lib/channel-utils'
 import CollectionsTab from './collections-tab'
 import SettlementTab from './settlement-tab'
@@ -14,6 +18,7 @@ type Props = {
   channelConfigs: ChannelConfig[]
   collections: CollectionWithChannel[]
   pendingSettlements: CollectionWithChannel[]
+  forecastCents: number
   year: number
   month: number
   tab: string
@@ -30,7 +35,7 @@ const YEARS = [2024, 2025, 2026, 2027]
 export default function OperationsClient({
   companies, company, channelConfigs,
   collections, pendingSettlements,
-  year, month, tab, canDelete,
+  forecastCents, year, month, tab, canDelete,
 }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
@@ -81,6 +86,43 @@ export default function OperationsClient({
           ))}
         </select>
       </div>
+
+      {/* Banner forecast vs incassato */}
+      {(() => {
+        const totalCollected = collections.reduce((s, c) => s + c.gross_amount_cents, 0)
+        const delta = totalCollected - forecastCents
+        const pct = forecastCents > 0 ? Math.round((totalCollected / forecastCents) * 100) : null
+        return (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <p className="text-xs text-zinc-500 mb-1">Forecast mese</p>
+              <p className="text-lg font-semibold text-zinc-100 tabular-nums">
+                {forecastCents > 0 ? formatEur(forecastCents) : <span className="text-zinc-600">non impostato</span>}
+              </p>
+            </div>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <p className="text-xs text-zinc-500 mb-1">Incassato</p>
+              <p className="text-lg font-semibold text-zinc-100 tabular-nums">{formatEur(totalCollected)}</p>
+            </div>
+            <div className={`border rounded-xl p-4 ${
+              pct === null ? 'bg-zinc-900 border-zinc-800'
+              : delta >= 0  ? 'bg-emerald-500/10 border-emerald-500/30'
+              : pct >= 75   ? 'bg-amber-500/10 border-amber-500/30'
+              : 'bg-red-500/10 border-red-500/30'
+            }`}>
+              <p className="text-xs text-zinc-500 mb-1">Delta{pct !== null ? ` · ${pct}%` : ''}</p>
+              <p className={`text-lg font-semibold tabular-nums ${
+                pct === null ? 'text-zinc-600'
+                : delta >= 0  ? 'text-emerald-400'
+                : pct >= 75   ? 'text-amber-400'
+                : 'text-red-400'
+              }`}>
+                {pct !== null ? (delta >= 0 ? '+' : '') + formatEur(delta) : '—'}
+              </p>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Tab nav */}
       <div className="flex gap-0 border-b border-zinc-800">
