@@ -200,7 +200,6 @@ export default async function SchedulePage({
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-zinc-800 bg-zinc-900/80">
-                  <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">P</th>
                   <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">Scadenza</th>
                   <th className="text-left px-3 py-2.5 text-zinc-400 font-medium">Documento</th>
                   <th className="text-right px-3 py-2.5 text-zinc-400 font-medium">Importo</th>
@@ -212,9 +211,6 @@ export default async function SchedulePage({
               <tbody>
                 {rows.map(item => (
                   <tr key={item.id} className="border-b border-zinc-800/40 last:border-0 hover:bg-zinc-800/20">
-                    <td className="px-3 py-2">
-                      <PriorityBadge score={item.priority_override ?? item.priority_score} />
-                    </td>
                     <td className={`px-3 py-2 font-mono ${dueDateClass(item.due_date, item.status, today)}`}>
                       {new Date(item.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
                       {item.postponed_to && (

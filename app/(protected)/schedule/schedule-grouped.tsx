@@ -120,7 +120,6 @@ function RowsTable({
           <tr className="border-b border-zinc-800 bg-zinc-900/80">
             {showDate && <th className="text-left px-3 py-2 text-zinc-500 font-medium">Data</th>}
             {showCompany && <th className="text-left px-3 py-2 text-zinc-500 font-medium">Soc.</th>}
-            <th className="text-left px-3 py-2 text-zinc-500 font-medium">P</th>
             <th className="text-left px-3 py-2 text-zinc-500 font-medium">Fornitore</th>
             <th className="text-left px-3 py-2 text-zinc-500 font-medium">Documento</th>
             <th className="text-right px-3 py-2 text-zinc-500 font-medium">Importo</th>
@@ -150,9 +149,6 @@ function RowsTable({
                     </span>
                   </td>
                 )}
-                <td className="px-3 py-2">
-                  <PriorityBadge score={item.priority_override ?? item.priority_score} />
-                </td>
                 <td className="px-3 py-2 max-w-44">
                   {item.supplier_name ? (
                     <button
