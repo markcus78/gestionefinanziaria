@@ -2,14 +2,9 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { MONTHS_SHORT } from '@/lib/channel-utils'
-import ForecastTab from './forecast-tab'
 import CollectionsTab from './collections-tab'
 import SettlementTab from './settlement-tab'
-import type {
-  ChannelConfig,
-  CollectionWithChannel,
-  MonthlyRevenueForecast,
-} from '@/lib/types/database'
+import type { ChannelConfig, CollectionWithChannel } from '@/lib/types/database'
 
 type Company = { id: string; code: string; name: string }
 
@@ -17,7 +12,6 @@ type Props = {
   companies: Company[]
   company: Company | null
   channelConfigs: ChannelConfig[]
-  forecasts: MonthlyRevenueForecast[]
   collections: CollectionWithChannel[]
   pendingSettlements: CollectionWithChannel[]
   year: number
@@ -27,24 +21,16 @@ type Props = {
 }
 
 const TABS = [
-  { id: 'forecast',   label: 'Forecast' },
-  { id: 'incassi',   label: 'Incassi' },
+  { id: 'incassi',    label: 'Incassi' },
   { id: 'settlement', label: 'Settlement' },
 ]
 
 const YEARS = [2024, 2025, 2026, 2027]
 
 export default function OperationsClient({
-  companies,
-  company,
-  channelConfigs,
-  forecasts,
-  collections,
-  pendingSettlements,
-  year,
-  month,
-  tab,
-  canDelete,
+  companies, company, channelConfigs,
+  collections, pendingSettlements,
+  year, month, tab, canDelete,
 }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
@@ -117,18 +103,6 @@ export default function OperationsClient({
           </button>
         ))}
       </div>
-
-      {/* Tab content */}
-      {tab === 'forecast' && (
-        <ForecastTab
-          companyId={company?.id ?? ''}
-          channelConfigs={channelConfigs}
-          forecasts={forecasts}
-          collections={collections}
-          year={year}
-          month={month}
-        />
-      )}
 
       {tab === 'incassi' && (
         <CollectionsTab

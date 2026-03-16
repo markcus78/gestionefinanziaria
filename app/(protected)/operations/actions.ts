@@ -4,36 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { calcCommissionCents, calcPayoutDate } from '@/lib/channel-utils'
 
-// ─── Forecast mensile ──────────────────────────────────────────────────────────
-
-export async function upsertForecast(
-  companyId: string,
-  channelId: string,
-  year: number,
-  month: number,
-  grossCents: number
-) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  const { error } = await supabase
-    .from('monthly_revenue_forecasts')
-    .upsert(
-      {
-        company_id: companyId,
-        channel_id: channelId,
-        year,
-        month,
-        forecast_gross_cents: grossCents,
-        created_by: user?.id,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'company_id,channel_id,year,month' }
-    )
-  if (error) return { error: error.message }
-  revalidatePath('/operations')
-  return { success: true }
-}
-
 // ─── Incasso giornaliero ───────────────────────────────────────────────────────
 
 export async function addDailyCollection(params: {

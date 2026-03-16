@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { TrendingUp } from 'lucide-react'
 import OperationsClient from './operations-client'
-import type { ChannelConfig, CollectionWithChannel, MonthlyRevenueForecast } from '@/lib/types/database'
+import type { ChannelConfig, CollectionWithChannel } from '@/lib/types/database'
 
 export default async function OperationsPage({
   searchParams,
@@ -18,7 +18,7 @@ export default async function OperationsPage({
   const companyCode = sp.company ?? ''
   const year  = parseInt(sp.year  ?? String(now.getFullYear()), 10)
   const month = parseInt(sp.month ?? String(now.getMonth() + 1), 10)
-  const tab   = sp.tab ?? 'forecast'
+  const tab   = sp.tab ?? 'incassi'
 
   const [{ data: companies }, { data: userProfile }] = await Promise.all([
     supabase.from('companies').select('id, code, name').eq('is_active', true).order('code'),
@@ -40,14 +40,12 @@ export default async function OperationsPage({
     )
   }
 
-  // Calcola range date del mese selezionato
   const monthStr  = String(month).padStart(2, '0')
   const startDate = `${year}-${monthStr}-01`
   const endDate   = new Date(year, month, 0).toISOString().split('T')[0]
 
   const [
     { data: channelConfigsRaw },
-    { data: forecastsRaw },
     { data: collectionsRaw },
     { data: pendingSettlementsRaw },
   ] = await Promise.all([
@@ -56,12 +54,6 @@ export default async function OperationsPage({
       .select('*, cash_channels(*)')
       .eq('company_id', companyId)
       .eq('is_enabled', true),
-    supabase
-      .from('monthly_revenue_forecasts')
-      .select('*')
-      .eq('company_id', companyId)
-      .eq('year', year)
-      .eq('month', month),
     supabase
       .from('daily_collections')
       .select('*, cash_channels(name)')
@@ -89,7 +81,6 @@ export default async function OperationsPage({
         companies={companies ?? []}
         company={company}
         channelConfigs={(channelConfigsRaw ?? []) as ChannelConfig[]}
-        forecasts={(forecastsRaw ?? []) as MonthlyRevenueForecast[]}
         collections={(collectionsRaw ?? []) as CollectionWithChannel[]}
         pendingSettlements={(pendingSettlementsRaw ?? []) as CollectionWithChannel[]}
         year={year}
