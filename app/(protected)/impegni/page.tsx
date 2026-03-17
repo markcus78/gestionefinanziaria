@@ -14,7 +14,7 @@ export default async function ImpegniPage({
   if (!user) redirect('/login')
 
   const companyId = sp.company ?? ''
-  const status    = sp.status  ?? ''
+  const status    = sp.status  ?? 'pending'
   const flow      = sp.flow    ?? ''
   const from      = sp.from    ?? ''
   const to        = sp.to      ?? ''

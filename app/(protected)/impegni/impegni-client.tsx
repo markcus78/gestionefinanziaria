@@ -148,7 +148,7 @@ function CommitmentsSection({
   const [, startTransition] = useTransition()
 
   const companyId = sp.get('company') ?? ''
-  const status    = sp.get('status')  ?? ''
+  const status    = sp.get('status')  ?? 'pending'
   const flow      = sp.get('flow')    ?? ''
   const from      = sp.get('from')    ?? ''
   const to        = sp.get('to')      ?? ''
