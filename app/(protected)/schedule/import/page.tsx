@@ -59,6 +59,7 @@ type FileImported = {
   rowsMarkedPaid: number
   rowsSkipped: number
   suppliersNew: number
+  commitmentsCancelled: number
 }
 
 export default function ImportPage() {
@@ -218,10 +219,11 @@ export default function ImportPage() {
   const totalOut     = readyToImport.reduce((s, p) => s + p.stats.totalOutCents, 0)
   const totalOverdue = readyToImport.reduce((s, p) => s + p.stats.overdue, 0)
 
-  const totalNew      = imported.reduce((s, r) => s + r.rowsNew, 0)
-  const totalModified = imported.reduce((s, r) => s + r.rowsModified, 0)
-  const totalPaid     = imported.reduce((s, r) => s + r.rowsMarkedPaid, 0)
-  const totalSkipped  = imported.reduce((s, r) => s + r.rowsSkipped, 0)
+  const totalNew        = imported.reduce((s, r) => s + r.rowsNew, 0)
+  const totalModified   = imported.reduce((s, r) => s + r.rowsModified, 0)
+  const totalPaid       = imported.reduce((s, r) => s + r.rowsMarkedPaid, 0)
+  const totalSkipped    = imported.reduce((s, r) => s + r.rowsSkipped, 0)
+  const totalCancelled  = imported.reduce((s, r) => s + r.commitmentsCancelled, 0)
   const totalSupNew   = imported.reduce((s, r) => s + r.suppliersNew, 0)
 
   const totalDiffAdded    = diffs.reduce((s, d) => s + d.result.added.length + d.result.alwaysNew.length, 0)
@@ -781,6 +783,12 @@ export default function ImportPage() {
                 <p className="text-2xl font-bold text-red-400">{totalPaid}</p>
                 <p className="text-zinc-400">marcate pagate</p>
               </div>
+              {totalCancelled > 0 && (
+                <div>
+                  <p className="text-2xl font-bold text-orange-400">{totalCancelled}</p>
+                  <p className="text-zinc-400">impegni annullati</p>
+                </div>
+              )}
               {totalSkipped > 0 && (
                 <div>
                   <p className="text-2xl font-bold text-zinc-500">{totalSkipped}</p>

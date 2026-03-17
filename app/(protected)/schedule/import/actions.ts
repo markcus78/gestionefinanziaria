@@ -67,7 +67,7 @@ export type DiffPreviewResult = { error: string } | DiffPreviewWithDuplicates
 
 export type ImportResult =
   | { error: string }
-  | { rowsNew: number; rowsModified: number; rowsMarkedPaid: number; rowsSkipped: number; suppliersNew: number }
+  | { rowsNew: number; rowsModified: number; rowsMarkedPaid: number; rowsSkipped: number; suppliersNew: number; commitmentsCancelled: number }
 
 // ── Parse ──────────────────────────────────────────────────────────────────
 
@@ -323,15 +323,16 @@ export async function importIncrementalAction(
   if (!companyRow) return { error: `Società con codice "${companyCode}" non trovata` }
   const companyId = companyRow.id
 
-  // 0b. Annulla impegni duplicati selezionati dall'utente
-  if (cancelCommitmentIds.length > 0) {
+  // 0b. Annulla impegni duplicati selezionati dall'utente (uno per uno per sicurezza)
+  let commitmentsCancelled = 0
+  for (const cid of cancelCommitmentIds) {
     const { error: cancelErr } = await supabase
       .from('payment_schedule')
       .update({ status: 'cancelled' })
-      .in('id', cancelCommitmentIds)
+      .eq('id', cid)
       .eq('entry_type', 'commitment')
-      .eq('company_id', companyId)
-    if (cancelErr) return { error: `Errore annullamento impegni duplicati: ${cancelErr.message}` }
+    if (cancelErr) return { error: `Errore annullamento impegno ${cid}: ${cancelErr.message}` }
+    commitmentsCancelled++
   }
 
   // 1. Calcola diff (ricalcolo server-side per sicurezza)
@@ -499,5 +500,6 @@ export async function importIncrementalAction(
     .eq('id', batch.id)
 
   revalidatePath('/schedule')
-  return { rowsNew, rowsModified, rowsMarkedPaid, rowsSkipped, suppliersNew }
+  revalidatePath('/impegni')
+  return { rowsNew, rowsModified, rowsMarkedPaid, rowsSkipped, suppliersNew, commitmentsCancelled }
 }
