@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { cancelCommitment } from '@/app/(protected)/impegni/actions'
 import {
   parseXLSBuffer,
   computeDedupKey,
@@ -323,15 +324,11 @@ export async function importIncrementalAction(
   if (!companyRow) return { error: `Società con codice "${companyCode}" non trovata` }
   const companyId = companyRow.id
 
-  // 0b. Annulla impegni duplicati selezionati dall'utente (uno per uno per sicurezza)
+  // 0b. Annulla impegni duplicati selezionati dall'utente
   let commitmentsCancelled = 0
   for (const cid of cancelCommitmentIds) {
-    const { error: cancelErr } = await supabase
-      .from('payment_schedule')
-      .update({ status: 'cancelled' })
-      .eq('id', cid)
-      .eq('entry_type', 'commitment')
-    if (cancelErr) return { error: `Errore annullamento impegno ${cid}: ${cancelErr.message}` }
+    const res = await cancelCommitment(cid)
+    if ('error' in res) return { error: `Errore annullamento impegno ${cid}: ${res.error}` }
     commitmentsCancelled++
   }
 
