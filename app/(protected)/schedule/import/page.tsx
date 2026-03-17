@@ -142,7 +142,7 @@ export default function ImportPage() {
       })
     }
 
-    setCancelCommitmentIds(new Set())
+    setCancelCommitmentIds(new Set(results.flatMap(r => r.possibleDuplicates.map(d => d.commitment.id))))
     setDiffs(results)
     setIsProcessing(false)
     setProcessProgress(null)
@@ -536,8 +536,8 @@ export default function ImportPage() {
                         </div>
                       </div>
                       <p className="text-xs text-zinc-500 mb-3">
-                        Queste righe in arrivo hanno importo identico a impegni manuali con scadenza entro 7 giorni.
-                        Seleziona quelli da annullare per evitare doppi conteggi in tesoreria.
+                        Questi impegni manuali verranno annullati automaticamente perché la voce contabile è ora disponibile.
+                        Deseleziona solo se vuoi mantenerli.
                       </p>
                       <div className="space-y-1.5">
                         {diff.possibleDuplicates.map((dup, di) => {
