@@ -418,11 +418,12 @@ export async function importIncrementalAction(
     ])
   )
 
-  // 8. INSERT righe nuove (added + alwaysNew)
+  // 8. INSERT righe nuove (added + alwaysNew) — solo accounting, no commitment da XLS
   const toInsert = [
     ...diff.added,
     ...diff.alwaysNew,
-  ].map(row => buildPaymentRow(row, companyId, batch.id, supplierMap, legalNameToId))
+  ].filter(row => row.entry_type === 'accounting')
+   .map(row => buildPaymentRow(row, companyId, batch.id, supplierMap, legalNameToId))
 
   let rowsNew = 0
   let rowsSkipped = 0
