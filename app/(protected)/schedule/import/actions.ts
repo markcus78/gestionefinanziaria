@@ -325,12 +325,13 @@ export async function importIncrementalAction(
 
   // 0b. Annulla impegni duplicati selezionati dall'utente
   if (cancelCommitmentIds.length > 0) {
-    await supabase
+    const { error: cancelErr } = await supabase
       .from('payment_schedule')
-      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .update({ status: 'cancelled' })
       .in('id', cancelCommitmentIds)
       .eq('entry_type', 'commitment')
       .eq('company_id', companyId)
+    if (cancelErr) return { error: `Errore annullamento impegni duplicati: ${cancelErr.message}` }
   }
 
   // 1. Calcola diff (ricalcolo server-side per sicurezza)
