@@ -42,7 +42,28 @@ export type FileDiffResult = {
   unchanged: number
 }
 
-export type DiffPreviewResult = { error: string } | FileDiffResult
+type CommitmentMatch = {
+  id: string
+  supplier_name: string | null
+  amount_cents: number
+  due_date: string
+  commitment_type: string | null
+  account_description: string | null
+}
+
+export type PossibleDuplicate = {
+  amount_cents: number
+  due_date: string
+  supplier_name: string | null
+  commitment: CommitmentMatch
+}
+
+export type DiffPreviewWithDuplicates = {
+  diff: FileDiffResult
+  possibleDuplicates: PossibleDuplicate[]
+}
+
+export type DiffPreviewResult = { error: string } | DiffPreviewWithDuplicates
 
 export type ImportResult =
   | { error: string }
@@ -235,7 +256,46 @@ export async function diffPreviewAction(
     .single()
   if (!companyRow) return { error: `Società "${companyCode}" non trovata` }
 
-  return computeDiff(companyRow.id, rows, supabase)
+  const diff = await computeDiff(companyRow.id, rows, supabase)
+  if ('error' in diff) return diff
+
+  // Cerca possibili duplicati tra le righe in arrivo (uscite) e impegni manuali attivi
+  const { data: commitments } = await supabase
+    .from('payment_schedule')
+    .select('id, supplier_name, amount_cents, due_date, commitment_type, account_description')
+    .eq('company_id', companyRow.id)
+    .eq('entry_type', 'commitment')
+    .not('status', 'in', '("cancelled","paid")')
+
+  const incomingOut = [...diff.added, ...diff.alwaysNew].filter(r => r.flow_type === 'out')
+  const possibleDuplicates: PossibleDuplicate[] = []
+
+  for (const row of incomingOut) {
+    const match = (commitments ?? []).find(c => {
+      const sameCents = Math.abs(c.amount_cents) === Math.abs(row.amount_cents)
+      const daysDiff = Math.abs(
+        new Date(c.due_date).getTime() - new Date(row.due_date).getTime()
+      ) / 86400000
+      return sameCents && daysDiff <= 7
+    })
+    if (match) {
+      possibleDuplicates.push({
+        amount_cents: row.amount_cents,
+        due_date: row.due_date,
+        supplier_name: row.supplier_name,
+        commitment: {
+          id: match.id,
+          supplier_name: match.supplier_name,
+          amount_cents: match.amount_cents,
+          due_date: match.due_date,
+          commitment_type: match.commitment_type,
+          account_description: match.account_description,
+        },
+      })
+    }
+  }
+
+  return { diff, possibleDuplicates }
 }
 
 // ── Import Incrementale ─────────────────────────────────────────────────────
@@ -244,7 +304,8 @@ export async function importIncrementalAction(
   companyCode: string,
   rowsJson: string,
   fileName: string,
-  markPaidIds: string[]
+  markPaidIds: string[],
+  cancelCommitmentIds: string[] = []
 ): Promise<ImportResult> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -261,6 +322,16 @@ export async function importIncrementalAction(
     .single()
   if (!companyRow) return { error: `Società con codice "${companyCode}" non trovata` }
   const companyId = companyRow.id
+
+  // 0b. Annulla impegni duplicati selezionati dall'utente
+  if (cancelCommitmentIds.length > 0) {
+    await supabase
+      .from('payment_schedule')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .in('id', cancelCommitmentIds)
+      .eq('entry_type', 'commitment')
+      .eq('company_id', companyId)
+  }
 
   // 1. Calcola diff (ricalcolo server-side per sicurezza)
   const diff = await computeDiff(companyId, rows, supabase)

@@ -8,7 +8,8 @@ import {
 } from 'lucide-react'
 import { parseFileAction, diffPreviewAction, importIncrementalAction } from './actions'
 import type { ParseStats, ParsedRow } from '@/lib/xls-parser'
-import type { FileDiffResult, DiffModified, DiffRemoved } from './actions'
+import type { FileDiffResult, DiffModified, DiffRemoved, PossibleDuplicate } from './actions'
+import { AlertTriangle } from 'lucide-react'
 
 const COMPANIES = [
   { code: '', name: '— seleziona —' },
@@ -47,6 +48,7 @@ type FileDiff = {
   allRowsJson: string
   result: FileDiffResult
   selectedRemovedIds: string[]
+  possibleDuplicates: PossibleDuplicate[]
 }
 
 type FileImported = {
@@ -69,6 +71,7 @@ export default function ImportPage() {
   const [parsed, setParsed] = useState<FileParsed[]>([])
   const [fileCompanies, setFileCompanies] = useState<string[]>([])
   const [diffs, setDiffs] = useState<FileDiff[]>([])
+  const [cancelCommitmentIds, setCancelCommitmentIds] = useState<Set<string>>(new Set())
   const [imported, setImported] = useState<FileImported[]>([])
   const [globalError, setGlobalError] = useState<string | null>(null)
 
@@ -133,11 +136,13 @@ export default function ImportPage() {
         fileName: fp.fileName,
         companyCode: company,
         allRowsJson: fp.allRowsJson,
-        result: res,
-        selectedRemovedIds: res.removed.map(r => r.dbId),
+        result: res.diff,
+        selectedRemovedIds: res.diff.removed.map(r => r.dbId),
+        possibleDuplicates: res.possibleDuplicates,
       })
     }
 
+    setCancelCommitmentIds(new Set())
     setDiffs(results)
     setIsProcessing(false)
     setProcessProgress(null)
@@ -182,7 +187,8 @@ export default function ImportPage() {
         diff.companyCode,
         diff.allRowsJson,
         diff.fileName,
-        diff.selectedRemovedIds
+        diff.selectedRemovedIds,
+        [...cancelCommitmentIds]
       )
       if ('error' in res) {
         setGlobalError(`Errore su "${diff.fileName}": ${res.error}`)
@@ -493,6 +499,87 @@ export default function ImportPage() {
 
                 <div className="divide-y divide-zinc-800/60">
 
+                  {/* Possibili duplicati con impegni manuali */}
+                  {diff.possibleDuplicates.length > 0 && (
+                    <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-sm text-amber-400">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                          <span className="font-medium">
+                            {diff.possibleDuplicates.length === 1
+                              ? '1 possibile duplicato con impegni manuali'
+                              : `${diff.possibleDuplicates.length} possibili duplicati con impegni manuali`}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          <button
+                            onClick={() => setCancelCommitmentIds(prev => {
+                              const next = new Set(prev)
+                              diff.possibleDuplicates.forEach(d => next.add(d.commitment.id))
+                              return next
+                            })}
+                            className="text-zinc-400 hover:text-zinc-200"
+                          >
+                            Tutti
+                          </button>
+                          <span className="text-zinc-700">·</span>
+                          <button
+                            onClick={() => setCancelCommitmentIds(prev => {
+                              const next = new Set(prev)
+                              diff.possibleDuplicates.forEach(d => next.delete(d.commitment.id))
+                              return next
+                            })}
+                            className="text-zinc-400 hover:text-zinc-200"
+                          >
+                            Nessuno
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-zinc-500 mb-3">
+                        Queste righe in arrivo hanno importo identico a impegni manuali con scadenza entro 7 giorni.
+                        Seleziona quelli da annullare per evitare doppi conteggi in tesoreria.
+                      </p>
+                      <div className="space-y-1.5">
+                        {diff.possibleDuplicates.map((dup, di) => {
+                          const selected = cancelCommitmentIds.has(dup.commitment.id)
+                          return (
+                            <label
+                              key={di}
+                              className={`flex items-start gap-3 px-3 py-2 rounded-lg cursor-pointer text-xs transition-colors ${
+                                selected ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-zinc-800/50 border border-transparent hover:bg-zinc-800'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => setCancelCommitmentIds(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(dup.commitment.id)) next.delete(dup.commitment.id)
+                                  else next.add(dup.commitment.id)
+                                  return next
+                                })}
+                                className="w-3.5 h-3.5 accent-amber-500 shrink-0 mt-0.5"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-zinc-200 font-medium">{dup.supplier_name ?? '—'}</span>
+                                  <span className="text-amber-400 tabular-nums">{formatEur(Math.abs(dup.amount_cents))}</span>
+                                  <span className="text-zinc-500 tabular-nums">{formatDate(dup.due_date)}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-0.5 text-zinc-500">
+                                  <span className="text-zinc-600">↳ Impegno:</span>
+                                  <span>{dup.commitment.supplier_name ?? dup.commitment.account_description ?? '—'}</span>
+                                  <span className="tabular-nums">{formatEur(Math.abs(dup.commitment.amount_cents))}</span>
+                                  <span className="tabular-nums">{formatDate(dup.commitment.due_date)}</span>
+                                </div>
+                              </div>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Nuove */}
                   {newCount > 0 && (
                     <details className="group">
@@ -740,7 +827,7 @@ export default function ImportPage() {
               Vai allo Scadenzario
             </button>
             <button
-              onClick={() => { setStep('upload'); setParsed([]); setImported([]); setFileCompanies([]); setDiffs([]) }}
+              onClick={() => { setStep('upload'); setParsed([]); setImported([]); setFileCompanies([]); setDiffs([]); setCancelCommitmentIds(new Set()) }}
               className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm rounded-lg transition-colors"
             >
               Importa altri file

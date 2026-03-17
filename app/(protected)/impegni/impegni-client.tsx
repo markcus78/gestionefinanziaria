@@ -95,6 +95,7 @@ type Props = {
   items: PaymentScheduleItem[]
   companies: Pick<Company, 'id' | 'code' | 'name'>[]
   templates: RecurringTemplate[]
+  matchedIds: string[]
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -134,10 +135,13 @@ type BatchRow = {
 function CommitmentsSection({
   items,
   companies,
+  matchedIds,
 }: {
   items: PaymentScheduleItem[]
   companies: Pick<Company, 'id' | 'code' | 'name'>[]
+  matchedIds: string[]
 }) {
+  const matchedSet = new Set(matchedIds)
   const router    = useRouter()
   const pathname  = usePathname()
   const sp        = useSearchParams()
@@ -497,11 +501,16 @@ function CommitmentsSection({
                         {new Date(item.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
                       </td>
                       <td className="px-3 py-2">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-zinc-200">{item.supplier_name ?? '—'}</span>
                           {item.commitment_type && COMMITMENT_TYPE_BADGE[item.commitment_type] && (
                             <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${COMMITMENT_TYPE_BADGE[item.commitment_type]!.cls}`}>
                               {COMMITMENT_TYPE_BADGE[item.commitment_type]!.label}
+                            </span>
+                          )}
+                          {matchedSet.has(item.id) && (
+                            <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-orange-500/20 text-orange-400">
+                              Già in scadenzario
                             </span>
                           )}
                         </div>
@@ -538,6 +547,12 @@ function CommitmentsSection({
                                 className="p-1.5 rounded text-zinc-400 hover:text-amber-400 hover:bg-zinc-700" title="Annulla impegno">
                                 <Ban className="w-3.5 h-3.5" />
                               </button>
+                              {matchedSet.has(item.id) && (
+                                <button onClick={() => handleCancel(item.id)}
+                                  className="px-2 py-1 rounded text-xs font-medium text-orange-400 hover:text-orange-300 hover:bg-orange-500/10 transition-colors" title="Annulla perché già presente in scadenzario">
+                                  Annulla duplicato
+                                </button>
+                              )}
                             </>
                           )}
                           <button onClick={() => handleDelete(item.id)}
@@ -1665,7 +1680,7 @@ const TABS = [
   { value: 'reconciliation', label: 'Riconciliazione',  icon: Scale },
 ]
 
-export default function ImpegniClient({ items, companies, templates }: Props) {
+export default function ImpegniClient({ items, companies, templates, matchedIds }: Props) {
   const router   = useRouter()
   const pathname = usePathname()
   const sp       = useSearchParams()
@@ -1706,7 +1721,7 @@ export default function ImpegniClient({ items, companies, templates }: Props) {
       </div>
 
       {activeTab === 'commitments' && (
-        <CommitmentsSection items={items} companies={companies} />
+        <CommitmentsSection items={items} companies={companies} matchedIds={matchedIds} />
       )}
       {activeTab === 'templates' && (
         <TemplatesSection templates={templates} companies={companies} />
