@@ -827,13 +827,21 @@ export default function ImportPage() {
             </div>
           )}
 
-          <div className="flex gap-3 justify-center">
+          <div className="flex gap-3 justify-center flex-wrap">
             <button
               onClick={() => router.push('/schedule')}
               className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors"
             >
               Vai allo Scadenzario
             </button>
+            {totalCancelled > 0 && (
+              <button
+                onClick={() => { window.location.href = '/impegni' }}
+                className="px-6 py-2 bg-orange-600 hover:bg-orange-500 text-white text-sm rounded-lg transition-colors"
+              >
+                Vai agli Impegni
+              </button>
+            )}
             <button
               onClick={() => { setStep('upload'); setParsed([]); setImported([]); setFileCompanies([]); setDiffs([]); setCancelCommitmentIds(new Set()) }}
               className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm rounded-lg transition-colors"
