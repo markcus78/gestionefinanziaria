@@ -267,7 +267,7 @@ export async function diffPreviewAction(
     .eq('entry_type', 'commitment')
     .not('status', 'in', '("cancelled","paid")')
 
-  const incomingOut = [...diff.added, ...diff.alwaysNew].filter(r => r.flow_type === 'out')
+  const incomingOut = rows.filter(r => r.flow_type === 'out')
   const possibleDuplicates: PossibleDuplicate[] = []
 
   for (const row of incomingOut) {
