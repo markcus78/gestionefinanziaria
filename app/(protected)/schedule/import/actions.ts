@@ -35,12 +35,24 @@ export type DiffRemoved = {
   amountCents: number
 }
 
+export type PaidConflict = {
+  dbId: string
+  supplierName: string | null
+  documentNumber: string | null
+  dbAmountCents: number
+  paidAmountCents: number
+  dueDate: string
+  xlsAmountCents: number
+  xlsDueDate: string
+}
+
 export type FileDiffResult = {
   added: ParsedRow[]
   alwaysNew: ParsedRow[]
   modified: DiffModified[]
   removed: DiffRemoved[]
   unchanged: number
+  paidConflicts: PaidConflict[]
 }
 
 type CommitmentMatch = {
@@ -165,7 +177,7 @@ async function computeDiff(
 ): Promise<FileDiffResult | { error: string }> {
   const { data: dbRows, error: dbErr } = await supabase
     .from('payment_schedule')
-    .select('id, supplier_code, document_number, document_date, due_date, amount_cents, supplier_name')
+    .select('id, supplier_code, document_number, document_date, due_date, amount_cents, supplier_name, status, paid_amount_cents')
     .eq('company_id', companyId)
     .eq('entry_type', 'accounting')
   if (dbErr) return { error: dbErr.message }
@@ -177,6 +189,8 @@ async function computeDiff(
     amount_cents: number
     supplier_name: string | null
     document_number: string | null
+    status: string | null
+    paid_amount_cents: number | null
   }>()
   for (const dbRow of dbRows ?? []) {
     const key = buildDbMatchKey(companyId, dbRow)
@@ -186,12 +200,15 @@ async function computeDiff(
       amount_cents: dbRow.amount_cents,
       supplier_name: dbRow.supplier_name,
       document_number: dbRow.document_number,
+      status: dbRow.status,
+      paid_amount_cents: dbRow.paid_amount_cents,
     })
   }
 
   const added: ParsedRow[] = []
   const alwaysNew: ParsedRow[] = []
   const modified: DiffModified[] = []
+  const paidConflicts: PaidConflict[] = []
   const xlsKeys = new Set<string>()
   let unchanged = 0
 
@@ -210,13 +227,26 @@ async function computeDiff(
     if (!dbRow) {
       added.push(row)
     } else if (dbRow.due_date !== row.due_date || dbRow.amount_cents !== row.amount_cents) {
-      modified.push({
-        dbId: dbRow.id,
-        matchKey: key,
-        dbDueDate: dbRow.due_date,
-        dbAmountCents: dbRow.amount_cents,
-        row,
-      })
+      if (dbRow.status === 'paid') {
+        paidConflicts.push({
+          dbId: dbRow.id,
+          supplierName: dbRow.supplier_name,
+          documentNumber: dbRow.document_number,
+          dbAmountCents: dbRow.amount_cents,
+          paidAmountCents: dbRow.paid_amount_cents ?? 0,
+          dueDate: dbRow.due_date,
+          xlsAmountCents: row.amount_cents,
+          xlsDueDate: row.due_date,
+        })
+      } else {
+        modified.push({
+          dbId: dbRow.id,
+          matchKey: key,
+          dbDueDate: dbRow.due_date,
+          dbAmountCents: dbRow.amount_cents,
+          row,
+        })
+      }
     } else {
       unchanged++
     }
@@ -235,7 +265,7 @@ async function computeDiff(
     }
   }
 
-  return { added, alwaysNew, modified, removed, unchanged }
+  return { added, alwaysNew, modified, removed, unchanged, paidConflicts }
 }
 
 // ── Diff Preview ────────────────────────────────────────────────────────────
@@ -477,6 +507,7 @@ export async function importIncrementalAction(
         dedup_key: newDedupKey,
       })
       .eq('id', m.dbId)
+      .not('status', 'in', '("paid","cancelled")')
     if (!updErr) rowsModified++
   }
 

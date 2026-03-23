@@ -5,11 +5,11 @@ import { useRouter } from 'next/navigation'
 import {
   Upload, FileSpreadsheet, CheckCircle, ArrowLeft, Loader2,
   AlertCircle, FileX, FileCheck, Plus, Pencil, Trash2, Equal,
+  AlertTriangle, Info, ShieldCheck,
 } from 'lucide-react'
 import { parseFileAction, diffPreviewAction, importIncrementalAction } from './actions'
 import type { ParseStats, ParsedRow } from '@/lib/xls-parser'
-import type { FileDiffResult, DiffModified, DiffRemoved, PossibleDuplicate } from './actions'
-import { AlertTriangle } from 'lucide-react'
+import type { FileDiffResult, DiffModified, DiffRemoved, PossibleDuplicate, PaidConflict } from './actions'
 
 const COMPANIES = [
   { code: '', name: '— seleziona —' },
@@ -230,6 +230,7 @@ export default function ImportPage() {
   const totalDiffModified = diffs.reduce((s, d) => s + d.result.modified.length, 0)
   const totalDiffRemoved  = diffs.reduce((s, d) => s + d.result.removed.length, 0)
   const totalDiffSelected = diffs.reduce((s, d) => s + d.selectedRemovedIds.length, 0)
+  const totalPaidConflicts = diffs.reduce((s, d) => s + d.result.paidConflicts.length, 0)
 
   return (
     <div className="p-6 max-w-4xl">
@@ -459,12 +460,13 @@ export default function ImportPage() {
         <div className="space-y-6">
 
           {/* Riepilogo globale */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className={`grid gap-3 ${totalPaidConflicts > 0 ? 'grid-cols-5' : 'grid-cols-4'}`}>
             {[
               { label: 'Nuove', value: totalDiffAdded, color: 'text-emerald-400', icon: Plus },
               { label: 'Modificate', value: totalDiffModified, color: 'text-amber-400', icon: Pencil },
               { label: 'Sparite', value: `${totalDiffSelected}/${totalDiffRemoved}`, color: 'text-red-400', icon: Trash2 },
               { label: 'Invariate', value: diffs.reduce((s, d) => s + d.result.unchanged, 0), color: 'text-zinc-400', icon: Equal },
+              ...(totalPaidConflicts > 0 ? [{ label: 'Già pagate', value: totalPaidConflicts, color: 'text-blue-400', icon: ShieldCheck }] : []),
             ].map(({ label, value, color, icon: Icon }) => (
               <div key={label} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
                 <div className="flex items-center gap-1.5 mb-1">
@@ -500,6 +502,39 @@ export default function ImportPage() {
                 </div>
 
                 <div className="divide-y divide-zinc-800/60">
+
+                  {/* Pagamenti parziali — non verranno aggiornati */}
+                  {diff.result.paidConflicts.length > 0 && (
+                    <div className="px-4 py-3 bg-blue-500/5 border-b border-blue-500/20">
+                      <div className="flex items-center gap-2 text-sm text-blue-400 mb-2">
+                        <Info className="w-3.5 h-3.5 shrink-0" />
+                        <span className="font-medium">
+                          {diff.result.paidConflicts.length === 1
+                            ? '1 riga con pagamento parziale già registrato'
+                            : `${diff.result.paidConflicts.length} righe con pagamento parziale già registrato`}
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-500 mb-3">
+                        Queste righe non verranno aggiornate perché contengono un pagamento parziale già registrato. Il residuo è già tracciato come impegno separato.
+                      </p>
+                      <div className="space-y-1.5">
+                        {diff.result.paidConflicts.map((pc: PaidConflict) => (
+                          <div
+                            key={pc.dbId}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/8 border border-blue-500/15 text-xs"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <span className="text-zinc-300 font-medium">{pc.supplierName ?? pc.documentNumber ?? '—'}</span>
+                            </div>
+                            <span className="text-zinc-500 tabular-nums shrink-0">{pc.documentNumber}</span>
+                            <span className="text-zinc-400 tabular-nums shrink-0 line-through">{formatEur(Math.abs(pc.dbAmountCents))}</span>
+                            <span className="text-blue-400 tabular-nums shrink-0">pagato {formatEur(pc.paidAmountCents)}</span>
+                            <span className="text-zinc-600 tabular-nums shrink-0">XLS: {formatEur(Math.abs(pc.xlsAmountCents))}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Possibili duplicati con impegni manuali */}
                   {diff.possibleDuplicates.length > 0 && (
