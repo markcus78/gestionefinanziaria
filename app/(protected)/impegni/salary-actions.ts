@@ -67,6 +67,7 @@ export async function importSalaryItems(
   if (insErr) return { error: insErr.message }
 
   revalidatePath('/impegni')
+  revalidatePath('/staff')
   return { created: items.length }
 }
 
@@ -113,5 +114,6 @@ export async function importTaxItem(
   if (insErr) return { error: insErr.message }
 
   revalidatePath('/impegni')
+  revalidatePath('/staff')
   return { created: 1 }
 }
