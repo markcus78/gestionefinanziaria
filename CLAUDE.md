@@ -57,6 +57,8 @@ Non saltare l'alias. Non fare push force su master.
 | Editing inline con `useTransition` | `operations/forecast-tab.tsx` |
 | URL navigation via `useSearchParams` | `treasury-client.tsx` → `navigate()` |
 | Server action con `revalidatePath` | `operations/actions.ts` |
+| Modal multi-stato + azioni contestuali per riga | `payments/payments-client.tsx` |
+| `String(res.error)` per errori da server action | TS non restringe union dopo `'error' in res` |
 
 ### Regole
 
@@ -92,6 +94,12 @@ app/
     intercompany/      ← netting intercompany (Fase 6)
     reports/           ← segnalazioni interne (Fase 7)
                          actions.ts, page.tsx, reports-client.tsx
+    impegni/           ← impegni + template + stipendi (Fase 8+10)
+                         actions.ts, page.tsx, impegni-client.tsx
+                         templates-actions.ts, salary-actions.ts
+    audit/             ← audit log accessi (Fase 9)
+    payments/          ← pagamenti operativi (Fase 11)
+                         actions.ts, page.tsx, payments-client.tsx
 components/
   sidebar.tsx
   report-modal.tsx     ← modal segnalazione (dynamic import, ssr:false)
@@ -146,3 +154,7 @@ Canali incasso: Stripe, SumUp, AlmaPay, POS, Satispay, PayPal, Contanti, Bonific
 | 5 | ✅ Completa | Previsione 6 mesi: cashflow, spese stimate |
 | 6 | ✅ Completa | Intercompany: partite, netting, storico |
 | 7 | ✅ Completa | Segnalazioni interne: modal, email Resend, badge sidebar |
+| 8 | ✅ Completa | Impegni: sezione /impegni separata da scadenzario, CRUD manuale |
+| 9 | ✅ Completa | Audit log accessi: tabella access_logs, log login/logout, sessioni |
+| 10 | ✅ Completa | Template ricorrenti + import stipendi/collaboratori/F24 |
+| 11 | ✅ Completa | Pagamenti operativi: 3 sezioni, azioni per stato, pagamenti urgenti |
