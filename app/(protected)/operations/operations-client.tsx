@@ -8,6 +8,7 @@ function formatEur(cents: number) {
 import { MONTHS_SHORT } from '@/lib/channel-utils'
 import CollectionsTab from './collections-tab'
 import SettlementTab from './settlement-tab'
+import ScostamentoTab from './scostamento-tab'
 import type { ChannelConfig, CollectionWithChannel } from '@/lib/types/database'
 
 type Company = { id: string; code: string; name: string }
@@ -22,11 +23,13 @@ type Props = {
   year: number
   month: number
   tab: string
+  today: string
   canDelete: boolean
 }
 
 const TABS = [
   { id: 'incassi',    label: 'Incassi' },
+  { id: 'andamento',  label: 'Andamento' },
   { id: 'settlement', label: 'Settlement' },
 ]
 
@@ -35,7 +38,7 @@ const YEARS = [2024, 2025, 2026, 2027]
 export default function OperationsClient({
   companies, company, channelConfigs,
   collections, pendingSettlements,
-  forecastCents, year, month, tab, canDelete,
+  forecastCents, year, month, tab, today, canDelete,
 }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
@@ -154,6 +157,16 @@ export default function OperationsClient({
           year={year}
           month={month}
           canDelete={canDelete}
+        />
+      )}
+
+      {tab === 'andamento' && (
+        <ScostamentoTab
+          collections={collections}
+          forecastCents={forecastCents}
+          year={year}
+          month={month}
+          today={today}
         />
       )}
 

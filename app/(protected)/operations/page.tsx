@@ -15,6 +15,7 @@ export default async function OperationsPage({
   if (!user) redirect('/login')
 
   const now = new Date()
+  const today = now.toISOString().split('T')[0]
   const companyCode = sp.company ?? ''
   const year  = parseInt(sp.year  ?? String(now.getFullYear()), 10)
   const month = parseInt(sp.month ?? String(now.getMonth() + 1), 10)
@@ -98,6 +99,7 @@ export default async function OperationsPage({
         year={year}
         month={month}
         tab={tab}
+        today={today}
         canDelete={canDelete}
       />
     </div>

@@ -216,6 +216,44 @@ export function simulatePaymentsFromTimeline(
   return result
 }
 
+// ─── Scostamento helpers ───────────────────────────────────────────────────────
+
+/**
+ * Incasso cumulato atteso dall'algoritmo dal giorno 1 al giorno upToDay incluso.
+ */
+export function calcExpectedCumulated(
+  budgetCents: number,
+  year: number,
+  month: number,
+  upToDay: number,
+): number {
+  const daily = distributeForecast(budgetCents, 'subscription', null, year, month)
+  let sum = 0
+  for (const [dateStr, cents] of daily) {
+    if (new Date(dateStr + 'T00:00:00').getDate() <= upToDay) sum += cents
+  }
+  return Math.round(sum)
+}
+
+/**
+ * Proiezione totale fine mese basata sull'incassato reale fino al giorno upToDay.
+ */
+export function calcMonthProjection(
+  collectedCents: number,
+  year: number,
+  month: number,
+  upToDay: number,
+): number {
+  const daily = distributeForecast(1_000_000, 'subscription', null, year, month)
+  let weightPast = 0, weightTotal = 0
+  for (const [dateStr, w] of daily) {
+    weightTotal += w
+    if (new Date(dateStr + 'T00:00:00').getDate() <= upToDay) weightPast += w
+  }
+  if (weightPast <= 0) return 0
+  return Math.round(collectedCents / (weightPast / weightTotal))
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function addDays(isoDate: string, n: number): string {
