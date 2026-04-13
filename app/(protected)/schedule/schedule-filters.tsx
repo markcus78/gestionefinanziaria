@@ -248,38 +248,6 @@ export default function ScheduleFilters({ companies }: Props) {
             )}
           </div>
 
-          {!supplierId && (
-            <>
-              <div className="w-px h-4 bg-zinc-700" />
-
-              {/* GroupBy selector */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-zinc-500">Raggruppa:</span>
-                <div className="flex gap-1">
-                  {([
-                    { value: 'year',  label: 'Anno' },
-                    { value: 'month', label: 'Mese' },
-                    { value: 'day',   label: 'Giorno' },
-                  ] as const).map(o => {
-                    const groupBy = sp.get('groupBy') ?? 'day'
-                    return (
-                      <button
-                        key={o.value}
-                        onClick={() => push({ groupBy: o.value === 'day' ? '' : o.value })}
-                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                          groupBy === o.value
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        {o.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            </>
-          )}
         </div>
       )}
     </div>
