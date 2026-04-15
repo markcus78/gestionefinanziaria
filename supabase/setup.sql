@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS company_cash_channels (
   custom_commission_fixed_cents INTEGER,
   custom_settlement_days INTEGER,
   bank_account_id UUID REFERENCES bank_accounts(id),
+  payout_type TEXT CHECK (payout_type IN ('rolling_days', 'fixed_weekday')),
+  payout_rolling_days INTEGER,
+  payout_fixed_weekday INTEGER,
   UNIQUE(company_id, channel_id)
 );
 

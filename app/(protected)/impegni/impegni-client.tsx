@@ -7,7 +7,7 @@ import {
   Repeat, Users, Upload, RefreshCw, ListPlus, Scale,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { createCommitment, updateCommitment, cancelCommitment, deleteCommitment, createCommitmentBatch } from './actions'
+import { createCommitment, updateCommitment, cancelCommitment, deleteCommitment, createCommitmentBatch, createRecurringCommitments } from './actions'
 import type { CommitmentInput } from './actions'
 import { createTemplate, updateTemplate, deleteTemplate, generateMonth } from './templates-actions'
 import type { TemplateInput } from './templates-actions'
@@ -110,6 +110,9 @@ type FormState = {
   amount: string
   flow_type: 'in' | 'out'
   notes: string
+  is_recurring: boolean
+  frequency: 'monthly' | 'quarterly' | 'annual'
+  months_ahead: number
 }
 
 const EMPTY_FORM: FormState = {
@@ -120,6 +123,9 @@ const EMPTY_FORM: FormState = {
   amount: '',
   flow_type: 'out',
   notes: '',
+  is_recurring: false,
+  frequency: 'monthly',
+  months_ahead: 12,
 }
 
 type BatchRow = {
@@ -184,10 +190,12 @@ function CommitmentsSection({
     if (!form.due_date)      return setFormErr('Inserisci la data')
     const amountCents = parseCents(form.amount)
     if (amountCents <= 0)    return setFormErr('Inserisci un importo valido')
+    if (form.is_recurring && (form.months_ahead < 1 || form.months_ahead > 24))
+      return setFormErr('Mesi da generare: valore tra 1 e 24')
 
     setSaving(true)
     const raw = form.flow_type === 'out' ? -amountCents : amountCents
-    const res = await createCommitment({
+    const input: CommitmentInput = {
       company_id: form.company_id,
       supplier_name: form.supplier_name,
       account_description: form.account_description || null,
@@ -195,11 +203,21 @@ function CommitmentsSection({
       amount_cents: raw,
       flow_type: form.flow_type,
       notes: form.notes || null,
-    })
-    setSaving(false)
-    if ('error' in res) return setFormErr(res.error)
-    setModalOpen(false)
-    router.refresh()
+    }
+
+    if (form.is_recurring) {
+      const res = await createRecurringCommitments(input, form.frequency, form.months_ahead)
+      setSaving(false)
+      if ('error' in res) return setFormErr(res.error)
+      setModalOpen(false)
+      router.refresh()
+    } else {
+      const res = await createCommitment(input)
+      setSaving(false)
+      if ('error' in res) return setFormErr(res.error)
+      setModalOpen(false)
+      router.refresh()
+    }
   }
 
   // ── Modal inserimento multiplo ────────────────────────────────────────────
@@ -286,6 +304,9 @@ function CommitmentsSection({
       amount: (Math.abs(item.amount_cents) / 100).toFixed(2),
       flow_type: item.flow_type,
       notes: item.postpone_notes ?? '',
+      is_recurring: false,
+      frequency: 'monthly',
+      months_ahead: 12,
     })
     setEditErr('')
   }
@@ -626,6 +647,48 @@ function CommitmentsSection({
                   onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
               </div>
+
+              {/* Ricorrente */}
+              <div className="border border-zinc-700 rounded-lg p-3 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.is_recurring}
+                    onChange={e => setForm(p => ({ ...p, is_recurring: e.target.checked }))}
+                    className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-zinc-900"
+                  />
+                  <span className="text-sm text-zinc-200 flex items-center gap-1.5">
+                    <Repeat className="w-3.5 h-3.5 text-zinc-400" />
+                    Ripeti
+                  </span>
+                </label>
+                {form.is_recurring && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-zinc-400 mb-1">Frequenza</label>
+                      <select
+                        value={form.frequency}
+                        onChange={e => setForm(p => ({ ...p, frequency: e.target.value as FormState['frequency'] }))}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="monthly">Mensile</option>
+                        <option value="quarterly">Trimestrale</option>
+                        <option value="annual">Annuale</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-400 mb-1">Per quanti mesi</label>
+                      <input
+                        type="number" min="1" max="24" step="1"
+                        value={form.months_ahead}
+                        onChange={e => setForm(p => ({ ...p, months_ahead: parseInt(e.target.value) || 1 }))}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {formErr && <p className="text-red-400 text-xs">{formErr}</p>}
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setModalOpen(false)}
@@ -634,7 +697,7 @@ function CommitmentsSection({
                 </button>
                 <button type="submit" disabled={saving}
                   className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors disabled:opacity-50">
-                  {saving ? 'Salvataggio...' : 'Crea impegno'}
+                  {saving ? 'Salvataggio...' : form.is_recurring ? `Crea ${form.months_ahead} voci` : 'Crea impegno'}
                 </button>
               </div>
             </form>
