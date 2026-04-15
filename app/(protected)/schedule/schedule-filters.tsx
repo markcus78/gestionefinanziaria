@@ -52,6 +52,7 @@ export default function ScheduleFilters({ companies }: Props) {
   const to            = sp.get('to')             ?? ''
   const supplierId    = sp.get('supplier_id')    ?? ''
   const supplierLabel = sp.get('supplier_label') ?? ''
+  const pdr           = sp.get('pdr')            ?? ''
 
   const [searchVal, setSearchVal] = useState(sp.get('q') ?? '')
   const [fromLocal, setFromLocal] = useState(from)
@@ -197,6 +198,20 @@ export default function ScheduleFilters({ companies }: Props) {
               </button>
             ))}
           </div>
+
+          <div className="w-px h-4 bg-zinc-700" />
+
+          {/* Piano di rientro toggle */}
+          <button
+            onClick={() => push({ pdr: pdr ? '' : '1' })}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+              pdr
+                ? 'bg-rose-600 text-white'
+                : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            Piano di rientro
+          </button>
 
           <div className="w-px h-4 bg-zinc-700" />
 

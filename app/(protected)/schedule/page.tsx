@@ -73,6 +73,7 @@ export default async function SchedulePage({
   const to         = sp.to          ?? ''
   const search     = sp.q           ?? ''
   const supplierId = sp.supplier_id ?? ''
+  const pdr        = sp.pdr         ?? ''
 
   // Fetch companies for filter
   const { data: companies } = await supabase
@@ -138,6 +139,7 @@ export default async function SchedulePage({
   if (to)         dbq = dbq.lte('due_date', to)
   if (supplierId) dbq = dbq.eq('supplier_id', supplierId)
   if (search)     dbq = dbq.or(`supplier_name.ilike.%${search}%,account_description.ilike.%${search}%`)
+  if (pdr)        dbq = dbq.eq('is_repayment_plan', true)
 
   dbq = dbq
     .order('due_date', { ascending: true })
@@ -146,7 +148,14 @@ export default async function SchedulePage({
 
   const { data: items } = await dbq
 
-  const rows = (items ?? []) as PaymentScheduleItem[]
+  // DB già ordina per due_date ASC, priority_score DESC — qui aggiungiamo solo PDR first dentro stessa data
+  const rawRows = (items ?? []) as PaymentScheduleItem[]
+  const rows = rawRows.some(r => r.is_repayment_plan)
+    ? rawRows.sort((a, b) => {
+        if (a.due_date !== b.due_date) return 0 // mantieni ordine DB
+        return a.is_repayment_plan === b.is_repayment_plan ? 0 : a.is_repayment_plan ? -1 : 1
+      })
+    : rawRows
 
   const totalOut = rows.filter(r => r.flow_type === 'out').reduce((s, r) => s + Math.abs(r.amount_cents), 0)
   const totalIn  = rows.filter(r => r.flow_type === 'in').reduce((s, r)  => s + Math.abs(r.amount_cents), 0)
@@ -173,6 +182,10 @@ export default async function SchedulePage({
           {overdueCount > 0 && (
             <span className="text-red-400">{overdueCount} scadute</span>
           )}
+          {(() => {
+            const pdrCount = rows.filter(r => r.is_repayment_plan && r.status !== 'paid' && r.status !== 'cancelled').length
+            return pdrCount > 0 ? <span className="text-rose-400">{pdrCount} piano rientro</span> : null
+          })()}
         </div>
       )}
 
@@ -210,7 +223,7 @@ export default async function SchedulePage({
               </thead>
               <tbody>
                 {rows.map(item => (
-                  <tr key={item.id} className="border-b border-zinc-800/40 last:border-0 hover:bg-zinc-800/20">
+                  <tr key={item.id} className={`border-b border-zinc-800/40 last:border-0 hover:bg-zinc-800/20 ${item.is_repayment_plan ? 'border-l-2 border-l-rose-500/50 bg-rose-500/[0.03]' : ''}`}>
                     <td className={`px-3 py-2 font-mono ${dueDateClass(item.due_date, item.status, today)}`}>
                       {new Date(item.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
                       {item.postponed_to && (
@@ -218,6 +231,7 @@ export default async function SchedulePage({
                           → {new Date(item.postponed_to + 'T00:00:00').toLocaleDateString('it-IT')}
                         </span>
                       )}
+                      {item.is_repayment_plan && <span className="ml-1 px-1 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 uppercase tracking-wider">PDR</span>}
                     </td>
                     <td className="px-3 py-2 text-zinc-400">
                       {item.document_type && (

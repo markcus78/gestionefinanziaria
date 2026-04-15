@@ -1,15 +1,61 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { CreditCard, Clock, CalendarCheck, RotateCcw, Loader2, Shield, Scissors } from 'lucide-react'
-import { markPaid, markPostponed, markScheduled, resetToPending, toggleRepaymentPlan, markPartiallyPaid } from './actions'
-import type { PaymentScheduleItem } from '@/lib/types/database'
+import { useRouter } from 'next/navigation'
+import { CreditCard, Clock, CalendarCheck, RotateCcw, Loader2 } from 'lucide-react'
+import { markPaid, markPostponed, markScheduled, resetToPending } from './actions'
+import type { PaymentStatus } from '@/lib/types/database'
 
-function todayISO() {
-  return new Date().toISOString().split('T')[0]
+type Row = {
+  id: string
+  company_id: string
+  supplier_name: string | null
+  account_description: string | null
+  amount_cents: number
+  status: PaymentStatus
+  document_type: string | null
+  document_number: string | null
+  due_date: string
 }
+
+type Props = {
+  rows: Row[]
+  today: string
+  companyMap: Record<string, string>
+  windowTotal: number
+}
+
 function formatEur(cents: number) {
   return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100)
+}
+
+function StatusBadge({ status }: { status: PaymentStatus }) {
+  const map: Record<PaymentStatus, { label: string; cls: string }> = {
+    pending:   { label: 'Pendente',    cls: 'bg-amber-500/20 text-amber-400' },
+    scheduled: { label: 'Programmato', cls: 'bg-blue-500/20 text-blue-400' },
+    paid:      { label: 'Pagato',      cls: 'bg-emerald-500/20 text-emerald-400' },
+    postponed: { label: 'Posticipato', cls: 'bg-purple-500/20 text-purple-400' },
+    disputed:  { label: 'Contestato',  cls: 'bg-red-500/20 text-red-400' },
+    cancelled: { label: 'Annullato',   cls: 'bg-zinc-700 text-zinc-400' },
+  }
+  const { label, cls } = map[status] ?? map.pending
+  return <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>
+}
+
+function formatDate(dateStr: string, today: string) {
+  const d = new Date(dateStr + 'T00:00:00')
+  const t = new Date(today + 'T00:00:00')
+  const diff = Math.round((d.getTime() - t.getTime()) / 86400000)
+  if (diff === -1) return 'Ieri'
+  if (diff === 0) return 'Oggi'
+  if (diff === 1) return 'Domani'
+  return d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+function dateCellCls(dateStr: string, today: string) {
+  if (dateStr < today) return 'text-red-400 font-semibold'
+  if (dateStr === today) return 'text-amber-400 font-semibold'
+  return 'text-zinc-400'
 }
 
 function Tooltip({ label, children }: { label: string; children: React.ReactNode }) {
@@ -23,11 +69,9 @@ function Tooltip({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
-type Props = { item: PaymentScheduleItem }
-
-export default function RowActions({ item }: Props) {
+function RowActions({ item }: { item: Row }) {
+  const router = useRouter()
   const [showPaid, setShowPaid] = useState(false)
-  const [showPartial, setShowPartial] = useState(false)
   const [showPostpone, setShowPostpone] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -42,6 +86,7 @@ export default function RowActions({ item }: Props) {
     startTransition(async () => {
       const res = await fn()
       if (res.error) setError(res.error)
+      router.refresh()
     })
   }
 
@@ -53,18 +98,6 @@ export default function RowActions({ item }: Props) {
         ? <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-500 mx-1" />
         : (
           <>
-            <Tooltip label={item.is_repayment_plan ? "Rimuovi piano di rientro" : "Piano di rientro"}>
-              <button
-                onClick={() => run(() => toggleRepaymentPlan(item.id, !item.is_repayment_plan))}
-                className={`p-1 rounded transition-colors ${
-                  item.is_repayment_plan
-                    ? 'text-rose-400 bg-rose-500/10 hover:bg-rose-500/20'
-                    : 'text-zinc-400 hover:bg-zinc-800'
-                }`}
-              >
-                <Shield className="w-3.5 h-3.5" />
-              </button>
-            </Tooltip>
             {canSchedule && (
               <Tooltip label="Programma">
                 <button
@@ -82,16 +115,6 @@ export default function RowActions({ item }: Props) {
                   className="p-1 text-emerald-400 hover:bg-zinc-800 rounded transition-colors"
                 >
                   <CreditCard className="w-3.5 h-3.5" />
-                </button>
-              </Tooltip>
-            )}
-            {canMarkPaid && (
-              <Tooltip label="Acconto parziale">
-                <button
-                  onClick={() => setShowPartial(true)}
-                  className="p-1 text-orange-400 hover:bg-zinc-800 rounded transition-colors"
-                >
-                  <Scissors className="w-3.5 h-3.5" />
                 </button>
               </Tooltip>
             )}
@@ -129,16 +152,6 @@ export default function RowActions({ item }: Props) {
           }}
         />
       )}
-      {showPartial && (
-        <PartialPaidModal
-          item={item}
-          onClose={() => setShowPartial(false)}
-          onConfirm={(date, cents, residualDate) => {
-            setShowPartial(false)
-            run(() => markPartiallyPaid(item.id, date, cents, residualDate))
-          }}
-        />
-      )}
       {showPostpone && (
         <PostponeModal
           item={item}
@@ -156,11 +169,11 @@ export default function RowActions({ item }: Props) {
 function PaidModal({
   item, onClose, onConfirm,
 }: {
-  item: PaymentScheduleItem
+  item: Row
   onClose: () => void
   onConfirm: (date: string, cents: number) => void
 }) {
-  const [date, setDate] = useState(todayISO())
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [amount, setAmount] = useState(
     (Math.abs(item.amount_cents) / 100).toFixed(2)
   )
@@ -222,111 +235,10 @@ function PaidModal({
   )
 }
 
-function PartialPaidModal({
-  item, onClose, onConfirm,
-}: {
-  item: PaymentScheduleItem
-  onClose: () => void
-  onConfirm: (date: string, cents: number, residualDate: string) => void
-}) {
-  const totalCents = Math.abs(item.amount_cents)
-  const [date, setDate] = useState(todayISO())
-  const [amount, setAmount] = useState('')
-  const [residualDate, setResidualDate] = useState('')
-  const [err, setErr] = useState('')
-
-  const paidCents = Math.round(parseFloat(amount || '0') * 100)
-  const residualCents = totalCents - paidCents
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setErr('')
-    if (isNaN(paidCents) || paidCents <= 0) return setErr('Inserisci un importo valido')
-    if (paidCents >= totalCents) return setErr('Per il saldo totale usa "Segna pagato"')
-    if (!residualDate) return setErr('Inserisci la data per il saldo residuo')
-    onConfirm(date, paidCents, residualDate)
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-96 shadow-2xl" onClick={e => e.stopPropagation()}>
-        <h3 className="text-sm font-semibold text-zinc-100 mb-1">Pagamento parziale (acconto)</h3>
-        <p className="text-xs text-zinc-400 mb-4 truncate">
-          {item.supplier_name} — totale {formatEur(totalCents)}
-        </p>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">Data acconto</label>
-            <input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              required
-              className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">Importo acconto (€)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              max={(totalCents / 100 - 0.01).toFixed(2)}
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              placeholder={`Max ${((totalCents / 100) - 0.01).toFixed(2)}`}
-              required
-              className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-
-          {/* Riepilogo residuo */}
-          {paidCents > 0 && paidCents < totalCents && (
-            <div className="px-3 py-2 bg-orange-500/10 border border-orange-500/20 rounded-lg">
-              <p className="text-xs text-orange-300">
-                Residuo da saldare: <span className="font-semibold tabular-nums">{formatEur(residualCents)}</span>
-              </p>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">Nuova scadenza per il saldo</label>
-            <input
-              type="date"
-              value={residualDate}
-              onChange={e => setResidualDate(e.target.value)}
-              required
-              className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-
-          {err && <p className="text-xs text-red-400">{err}</p>}
-
-          <div className="flex gap-2 pt-1">
-            <button
-              type="submit"
-              className="flex-1 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-sm rounded-lg font-medium"
-            >
-              Conferma acconto
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm rounded-lg"
-            >
-              Annulla
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
 function PostponeModal({
   item, onClose, onConfirm,
 }: {
-  item: PaymentScheduleItem
+  item: Row
   onClose: () => void
   onConfirm: (date: string, notes: string) => void
 }) {
@@ -382,6 +294,64 @@ function PostponeModal({
           </div>
         </form>
       </div>
+    </div>
+  )
+}
+
+export default function DashboardTable({ rows, today, companyMap, windowTotal }: Props) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-zinc-800 text-zinc-400">
+            <th className="text-left px-4 py-2.5 font-medium">Data</th>
+            <th className="text-left px-4 py-2.5 font-medium">Soc.</th>
+            <th className="text-left px-4 py-2.5 font-medium">Fornitore / Descrizione</th>
+            <th className="text-left px-4 py-2.5 font-medium">Documento</th>
+            <th className="text-right px-4 py-2.5 font-medium">Importo</th>
+            <th className="text-left px-4 py-2.5 font-medium">Stato</th>
+            <th className="text-center px-4 py-2.5 font-medium">Azioni</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(item => (
+            <tr key={item.id} className="border-b border-zinc-800/40 last:border-0 hover:bg-zinc-800/20">
+              <td className={`px-4 py-2.5 tabular-nums ${dateCellCls(item.due_date, today)}`}>
+                {formatDate(item.due_date, today)}
+              </td>
+              <td className="px-4 py-2.5">
+                <span className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono">
+                  {companyMap[item.company_id] ?? '—'}
+                </span>
+              </td>
+              <td className="px-4 py-2.5 text-zinc-200 max-w-xs truncate">
+                {item.supplier_name || item.account_description || '—'}
+              </td>
+              <td className="px-4 py-2.5 text-zinc-500 font-mono">
+                {item.document_number || '—'}
+              </td>
+              <td className="px-4 py-2.5 text-right font-medium tabular-nums text-red-400">
+                -{formatEur(Math.abs(item.amount_cents))}
+              </td>
+              <td className="px-4 py-2.5">
+                <StatusBadge status={item.status} />
+              </td>
+              <td className="px-4 py-2.5">
+                <RowActions item={item} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-zinc-700 bg-zinc-800/50">
+            <td colSpan={4} className="px-4 py-2.5 text-xs text-zinc-400 font-medium">Totale</td>
+            <td className="px-4 py-2.5 text-right text-xs font-semibold tabular-nums text-red-400">
+              -{formatEur(windowTotal)}
+            </td>
+            <td colSpan={2} />
+          </tr>
+        </tfoot>
+      </table>
     </div>
   )
 }

@@ -78,3 +78,69 @@ export async function updateSupplier(
   revalidatePath('/schedule')
   return { success: true }
 }
+
+export async function markPartiallyPaid(
+  id: string,
+  paidDate: string,
+  paidAmountCents: number,
+  residualDueDate: string
+) {
+  const supabase = await createClient()
+
+  const { data: original, error: fetchErr } = await supabase
+    .from('payment_schedule')
+    .select('company_id, amount_cents, supplier_name, account_description, document_number, supplier_id, is_repayment_plan')
+    .eq('id', id)
+    .single()
+  if (fetchErr || !original) return { error: fetchErr?.message ?? 'Riga non trovata' }
+
+  const totalCents = Math.abs(original.amount_cents)
+  const residualCents = totalCents - paidAmountCents
+
+  const { error: updateErr } = await supabase
+    .from('payment_schedule')
+    .update({ status: 'paid', paid_date: paidDate, paid_amount_cents: paidAmountCents })
+    .eq('id', id)
+  if (updateErr) return { error: updateErr.message }
+
+  if (residualCents > 0) {
+    const docNum = 'RES-' + (original.document_number ?? id).slice(0, 12)
+    const desc = original.account_description ? original.account_description + ' (residuo)' : '(residuo)'
+    const { error: insertErr } = await supabase.from('payment_schedule').insert({
+      company_id: original.company_id,
+      import_batch_id: null,
+      supplier_name: original.supplier_name,
+      supplier_id: original.supplier_id,
+      account_description: desc,
+      due_date: residualDueDate,
+      amount_cents: -residualCents,
+      amount_in_cents: 0,
+      amount_out_cents: residualCents,
+      flow_type: 'out',
+      entry_type: 'commitment',
+      commitment_type: 'manual',
+      status: 'pending',
+      document_number: docNum,
+      is_intercompany: false,
+      is_repayment_plan: original.is_repayment_plan,
+    })
+    if (insertErr) return { error: insertErr.message }
+  }
+
+  revalidatePath('/schedule')
+  revalidatePath('/payments')
+  revalidatePath('/impegni')
+  revalidatePath('/dashboard')
+  return { success: true }
+}
+
+export async function toggleRepaymentPlan(id: string, value: boolean) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('payment_schedule')
+    .update({ is_repayment_plan: value })
+    .eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/schedule')
+  return { success: true }
+}

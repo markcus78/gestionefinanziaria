@@ -96,11 +96,11 @@ function parseRow(raw: unknown[]): ParsedRow | null {
 
   const docType = str(raw[5]) || null
 
-  // NC (nota di credito) = entrata; FT (fattura) = uscita
-  // Sovrascrive il tipoFlusso del gestionale per garantire segno corretto
+  // tipoFlusso dal gestionale: 0 = entrata, altro = uscita
+  // NC (nota di credito) = sempre entrata
+  // FT (fattura) = rispetta il tipoFlusso originale (attiva = entrata, passiva = uscita)
   let flowType: 'in' | 'out' = tipoFlusso === 0 ? 'in' : 'out'
   if (docType === 'NC') flowType = 'in'
-  else if (docType === 'FT') flowType = 'out'
 
   const absUdc = Math.abs(importoUdc)
   const finalAmountCents    = flowType === 'out' ? -Math.round(absUdc * 100) : Math.round(absUdc * 100)

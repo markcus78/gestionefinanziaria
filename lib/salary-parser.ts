@@ -77,3 +77,39 @@ export function parseSalaryFile(buffer: ArrayBuffer): SalaryItem[] {
 
   return items.sort((a, b) => a.name.localeCompare(b.name, 'it'))
 }
+
+function cleanInstructorName(raw: string): string {
+  return raw.replace(/\s*\[.*?\]\s*$/, '').replace(/^[A-Z]{2}/, '').trim()
+}
+
+function parseCollaboratorSheet(buffer: ArrayBuffer, amountKeyword: string): SalaryItem[] {
+  const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' })
+  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  const rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null })
+  if (rawRows.length < 2) return []
+
+  const header = (rawRows[0] as unknown[]).map(h => String(h ?? '').toLowerCase().trim())
+  const nameCol = header.findIndex(h => h.includes('collaboratore'))
+  const amountCol = header.findIndex(h => h.includes(amountKeyword))
+  if (nameCol === -1 || amountCol === -1) return []
+
+  const items: SalaryItem[] = []
+  for (const rawRow of rawRows.slice(1) as unknown[][]) {
+    const name = cleanInstructorName(String(rawRow[nameCol] ?? '').trim())
+    const rawAmount = rawRow[amountCol]
+    const amount = typeof rawAmount === 'number'
+      ? rawAmount
+      : parseFloat(String(rawAmount ?? '').replace(/\./g, '').replace(',', '.'))
+    if (!name || isNaN(amount) || amount <= 0) continue
+    items.push({ name, amountCents: Math.round(amount * 100) })
+  }
+  return items.sort((a, b) => a.name.localeCompare(b.name, 'it'))
+}
+
+export function parseInstructorsFile(buffer: ArrayBuffer): SalaryItem[] {
+  return parseCollaboratorSheet(buffer, 'netto provv')
+}
+
+export function parsePivaFile(buffer: ArrayBuffer): SalaryItem[] {
+  return parseCollaboratorSheet(buffer, 'totale fatturato')
+}

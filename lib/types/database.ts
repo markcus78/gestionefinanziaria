@@ -180,6 +180,7 @@ export type PaymentScheduleItem = {
   commitment_type?: CommitmentType | null
   recurring_template_id?: string | null
   reference_month?: string | null
+  is_repayment_plan: boolean
 }
 
 export type ExpenseForecast = {
@@ -216,7 +217,7 @@ export type AccessLog = {
   created_at: string
 }
 
-export type CommitmentType = 'forecast' | 'salary_item' | 'collab_item' | 'tax_item' | 'manual'
+export type CommitmentType = 'forecast' | 'salary_item' | 'collab_item' | 'tax_item' | 'manual' | 'extra_item' | 'piva_item'
 
 export type RecurringTemplate = {
   id: string

@@ -1,20 +1,17 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { useCallback, useState, useTransition, useRef, useEffect } from 'react'
+import { useCallback, useState, useTransition, useEffect } from 'react'
 import {
   Plus, X, Pencil, Ban, Trash2, Check, Calendar,
-  Repeat, Users, Upload, RefreshCw, ListPlus, Scale,
+  Repeat, RefreshCw, ListPlus, Scale,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { createCommitment, updateCommitment, cancelCommitment, deleteCommitment, createCommitmentBatch, createRecurringCommitments } from './actions'
+import { createCommitment, updateCommitment, cancelCommitment, deleteCommitment, createCommitmentBatch, createRecurringCommitments, markCommitmentPaid } from './actions'
 import type { CommitmentInput } from './actions'
 import { createTemplate, updateTemplate, deleteTemplate, generateMonth } from './templates-actions'
 import type { TemplateInput } from './templates-actions'
-import { importSalaryItems, importTaxItem } from './salary-actions'
-import { parseSalaryFile } from '@/lib/salary-parser'
-import type { SalaryItem } from '@/lib/salary-parser'
-import type { PaymentScheduleItem, PaymentStatus, RecurringTemplate, CommitmentType } from '@/lib/types/database'
+import type { PaymentScheduleItem, PaymentStatus, RecurringTemplate } from '@/lib/types/database'
 import type { Company } from '@/lib/types/database'
 
 // ── Costanti ──────────────────────────────────────────────────────────────────
@@ -347,6 +344,31 @@ function CommitmentsSection({
     })
   }
 
+  // ── Modal pagato ──────────────────────────────────────────────────────────
+  const [paidTarget, setPaidTarget] = useState<PaymentScheduleItem | null>(null)
+  const [paidDate, setPaidDate]     = useState(today())
+  const [paidAmount, setPaidAmount] = useState('')
+  const [paidSaving, setPaidSaving] = useState(false)
+
+  function openPaidModal(item: PaymentScheduleItem) {
+    setPaidTarget(item)
+    setPaidDate(today())
+    setPaidAmount((Math.abs(item.amount_cents) / 100).toFixed(2))
+  }
+
+  async function handleMarkPaid(e: React.FormEvent) {
+    e.preventDefault()
+    if (!paidTarget) return
+    const cents = Math.round(parseFloat(paidAmount) * 100)
+    if (isNaN(cents) || cents <= 0) return
+    setPaidSaving(true)
+    const res = await markCommitmentPaid(paidTarget.id, paidDate, cents)
+    setPaidSaving(false)
+    if ('error' in res) return alert(String(res.error))
+    setPaidTarget(null)
+    router.refresh()
+  }
+
   const totalOut = items.filter(r => r.flow_type === 'out').reduce((s, r) => s + Math.abs(r.amount_cents), 0)
   const totalIn  = items.filter(r => r.flow_type === 'in').reduce((s, r) => s + Math.abs(r.amount_cents), 0)
 
@@ -558,8 +580,12 @@ function CommitmentsSection({
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1">
-                          {item.status !== 'cancelled' && (
+                          {item.status !== 'cancelled' && item.status !== 'paid' && (
                             <>
+                              <button onClick={() => openPaidModal(item)}
+                                className="p-1.5 rounded text-zinc-400 hover:text-emerald-400 hover:bg-zinc-700" title="Segna come pagato">
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
                               <button onClick={() => startEdit(item)}
                                 className="p-1.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700" title="Modifica">
                                 <Pencil className="w-3.5 h-3.5" />
@@ -793,6 +819,38 @@ function CommitmentsSection({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal segna pagato */}
+      {paidTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPaidTarget(null)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-zinc-100 mb-1">Segna come pagato</h3>
+            <p className="text-xs text-zinc-400 mb-4 truncate">{paidTarget.supplier_name} — {formatEur(Math.abs(paidTarget.amount_cents))}</p>
+            <form onSubmit={handleMarkPaid} className="space-y-3">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Data pagamento</label>
+                <input type="date" value={paidDate} onChange={e => setPaidDate(e.target.value)} required
+                  className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Importo pagato (€)</label>
+                <input type="number" step="0.01" min="0.01" value={paidAmount} onChange={e => setPaidAmount(e.target.value)} required
+                  className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button type="submit" disabled={paidSaving}
+                  className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm rounded-lg font-medium disabled:opacity-50">
+                  {paidSaving ? 'Salvataggio...' : 'Conferma'}
+                </button>
+                <button type="button" onClick={() => setPaidTarget(null)}
+                  className="flex-1 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm rounded-lg">
+                  Annulla
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1170,368 +1228,6 @@ function TemplatesSection({
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// SalarySection
-// ────────────────────────────────────────────────────────────────────────────
-
-type SalarySubsection = 'salary_item' | 'collab_item'
-
-function SalarySection({
-  items,
-  companies,
-}: {
-  items: PaymentScheduleItem[]
-  companies: Pick<Company, 'id' | 'code' | 'name'>[]
-}) {
-  const router = useRouter()
-
-  const [companyId, setCompanyId] = useState(companies[0]?.id ?? '')
-  const [refMonth, setRefMonth]   = useState(currentYearMonth())
-
-  // Filtro voci esistenti per tipo/mese/società
-  const filterItems = (type: CommitmentType) =>
-    items.filter(i =>
-      i.commitment_type === type &&
-      i.reference_month === refMonth &&
-      (!companyId || i.company_id === companyId)
-    )
-
-  const salaryItems  = filterItems('salary_item')
-  const collabItems  = filterItems('collab_item')
-  const taxItem      = filterItems('tax_item')[0]
-
-  // ── Stato upload dipendenti ───────────────────────────────────────────────
-  const [salPreview, setSalPreview]     = useState<SalaryItem[] | null>(null)
-  const [salDueDate, setSalDueDate]     = useState('')
-  const [salLoading, setSalLoading]     = useState(false)
-  const [salErr, setSalErr]             = useState('')
-  const salRef = useRef<HTMLInputElement>(null)
-
-  // ── Stato upload collaboratori ────────────────────────────────────────────
-  const [colPreview, setColPreview]     = useState<SalaryItem[] | null>(null)
-  const [colDueDate, setColDueDate]     = useState('')
-  const [colLoading, setColLoading]     = useState(false)
-  const [colErr, setColErr]             = useState('')
-  const colRef = useRef<HTMLInputElement>(null)
-
-  // ── Stato F24 ─────────────────────────────────────────────────────────────
-  const [f24Amount, setF24Amount]     = useState('')
-  const [f24DueDate, setF24DueDate]   = useState('')
-  const [f24Saving, setF24Saving]     = useState(false)
-  const [f24Err, setF24Err]           = useState('')
-  const [f24Editing, setF24Editing]   = useState(false)
-
-  function startF24Edit() {
-    setF24Amount(taxItem ? (Math.abs(taxItem.amount_cents) / 100).toFixed(2) : '')
-    setF24DueDate(taxItem?.due_date ?? '')
-    setF24Editing(true)
-    setF24Err('')
-  }
-
-  function handleFileChange(
-    e: React.ChangeEvent<HTMLInputElement>,
-    type: SalarySubsection,
-  ) {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    const reader = new FileReader()
-    reader.onload = ev => {
-      try {
-        const parsed = parseSalaryFile(ev.target!.result as ArrayBuffer)
-        if (type === 'salary_item') { setSalPreview(parsed); setSalErr('') }
-        else                        { setColPreview(parsed); setColErr('') }
-      } catch (err) {
-        if (type === 'salary_item') setSalErr(String(err))
-        else                        setColErr(String(err))
-      }
-    }
-    reader.readAsArrayBuffer(file)
-  }
-
-  async function handleImport(type: SalarySubsection) {
-    if (!companyId || !refMonth) return
-
-    const preview  = type === 'salary_item' ? salPreview  : colPreview
-    const dueDate  = type === 'salary_item' ? salDueDate  : colDueDate
-    const setLoading = type === 'salary_item' ? setSalLoading : setColLoading
-    const setErr     = type === 'salary_item' ? setSalErr     : setColErr
-    const setPreview = type === 'salary_item' ? setSalPreview : setColPreview
-    const ref        = type === 'salary_item' ? salRef        : colRef
-
-    if (!preview?.length) return setErr('Nessuna voce valida trovata nel file')
-    if (!dueDate)          return setErr('Inserisci la data di pagamento')
-
-    setLoading(true)
-    const res = await importSalaryItems(companyId, refMonth, type, preview, dueDate)
-    setLoading(false)
-    if (res.error) { setErr(res.error); return }
-    setPreview(null)
-    if (ref.current) ref.current.value = ''
-    router.refresh()
-  }
-
-  async function handleF24Save() {
-    if (!companyId || !refMonth) return
-    const amountCents = parseCents(f24Amount)
-    if (amountCents <= 0) return setF24Err('Inserisci un importo valido')
-    if (!f24DueDate)      return setF24Err('Inserisci la data di scadenza')
-
-    setF24Saving(true)
-    const res = await importTaxItem(companyId, refMonth, amountCents, f24DueDate)
-    setF24Saving(false)
-    if (res.error) { setF24Err(res.error); return }
-    setF24Editing(false)
-    router.refresh()
-  }
-
-  const monthLabel = new Date(refMonth + '-01').toLocaleDateString('it-IT', { year: 'numeric', month: 'long' })
-
-  return (
-    <div className="space-y-6">
-      {/* Selettori */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <div>
-          <label className="block text-xs text-zinc-400 mb-1">Società</label>
-          <select value={companyId} onChange={e => setCompanyId(e.target.value)}
-            className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none">
-            <option value="">Seleziona...</option>
-            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs text-zinc-400 mb-1">Mese di riferimento</label>
-          <input type="month" value={refMonth} onChange={e => setRefMonth(e.target.value)}
-            className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-        </div>
-      </div>
-
-      {/* Sezione Dipendenti */}
-      <SalarySubSection
-        title="Dipendenti"
-        type="salary_item"
-        items={salaryItems}
-        preview={salPreview}
-        dueDate={salDueDate}
-        setDueDate={setSalDueDate}
-        loading={salLoading}
-        err={salErr}
-        setErr={setSalErr}
-        fileRef={salRef}
-        monthLabel={monthLabel}
-        companyId={companyId}
-        refMonth={refMonth}
-        onFileChange={handleFileChange}
-        onImport={handleImport}
-        onReimport={() => { setSalPreview(null); if (salRef.current) salRef.current.value = ''; }}
-      />
-
-      {/* Sezione Collaboratori */}
-      <SalarySubSection
-        title="Collaboratori"
-        type="collab_item"
-        items={collabItems}
-        preview={colPreview}
-        dueDate={colDueDate}
-        setDueDate={setColDueDate}
-        loading={colLoading}
-        err={colErr}
-        setErr={setColErr}
-        fileRef={colRef}
-        monthLabel={monthLabel}
-        companyId={companyId}
-        refMonth={refMonth}
-        onFileChange={handleFileChange}
-        onImport={handleImport}
-        onReimport={() => { setColPreview(null); if (colRef.current) colRef.current.value = ''; }}
-      />
-
-      {/* Sezione F24 */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-zinc-200 mb-4">F24 — {monthLabel}</h3>
-
-        {taxItem && !f24Editing ? (
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm text-red-400 font-medium tabular-nums">
-                -{formatEur(Math.abs(taxItem.amount_cents))}
-              </div>
-              <div className="text-xs text-zinc-500 mt-0.5">
-                Scadenza: {new Date(taxItem.due_date + 'T00:00:00').toLocaleDateString('it-IT')}
-              </div>
-            </div>
-            <button onClick={startF24Edit}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded-lg">
-              <Pencil className="w-3.5 h-3.5" /> Modifica
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3 max-w-sm">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Importo (€) *</label>
-                <input type="number" min="0" step="0.01" value={f24Amount} placeholder="0.00"
-                  onChange={e => setF24Amount(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-              </div>
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Data scadenza *</label>
-                <input type="date" value={f24DueDate}
-                  onChange={e => setF24DueDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-              </div>
-            </div>
-            {f24Err && <p className="text-red-400 text-xs">{f24Err}</p>}
-            <div className="flex gap-3">
-              {(taxItem || f24Editing) && (
-                <button onClick={() => { setF24Editing(false); setF24Err('') }}
-                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm rounded-lg">
-                  Annulla
-                </button>
-              )}
-              <button onClick={handleF24Save} disabled={f24Saving}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50">
-                {f24Saving ? 'Salvataggio...' : 'Salva F24'}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Sotto-sezione riutilizzabile per Dipendenti/Collaboratori ─────────────────
-
-function SalarySubSection({
-  title, type, items, preview, dueDate, setDueDate, loading, err, setErr,
-  fileRef, monthLabel, companyId, refMonth, onFileChange, onImport, onReimport,
-}: {
-  title: string
-  type: SalarySubsection
-  items: PaymentScheduleItem[]
-  preview: SalaryItem[] | null
-  dueDate: string
-  setDueDate: (v: string) => void
-  loading: boolean
-  err: string
-  setErr: (v: string) => void
-  fileRef: React.RefObject<HTMLInputElement | null>
-  monthLabel: string
-  companyId: string
-  refMonth: string
-  onFileChange: (e: React.ChangeEvent<HTMLInputElement>, type: SalarySubsection) => void
-  onImport: (type: SalarySubsection) => void
-  onReimport: () => void
-}) {
-  return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-      <h3 className="text-sm font-semibold text-zinc-200 mb-4 flex items-center gap-2">
-        <Users className="w-4 h-4 text-zinc-400" /> {title} — {monthLabel}
-      </h3>
-
-      {/* Voci esistenti */}
-      {items.length > 0 && !preview && (
-        <div className="mb-4">
-          <div className="bg-zinc-800/50 rounded-lg overflow-hidden mb-3">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-zinc-700">
-                  <th className="text-left px-3 py-2 text-zinc-400 font-medium">Nominativo</th>
-                  <th className="text-right px-3 py-2 text-zinc-400 font-medium">Importo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map(i => (
-                  <tr key={i.id} className="border-b border-zinc-700/40 last:border-0">
-                    <td className="px-3 py-1.5 text-zinc-300">{i.supplier_name}</td>
-                    <td className="px-3 py-1.5 text-right text-red-400 tabular-nums">
-                      -{formatEur(Math.abs(i.amount_cents))}
-                    </td>
-                  </tr>
-                ))}
-                <tr className="border-t border-zinc-600">
-                  <td className="px-3 py-1.5 text-zinc-400 font-medium">Totale</td>
-                  <td className="px-3 py-1.5 text-right text-red-400 font-medium tabular-nums">
-                    -{formatEur(items.reduce((s, i) => s + Math.abs(i.amount_cents), 0))}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <button onClick={onReimport}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded-lg">
-            <RefreshCw className="w-3.5 h-3.5" /> Reimporta
-          </button>
-        </div>
-      )}
-
-      {/* Upload o preview */}
-      {!preview ? (
-        <div className="flex items-center gap-3">
-          <label className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${
-            !companyId ? 'bg-zinc-800/50 text-zinc-600 cursor-not-allowed' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-          }`}>
-            <Upload className="w-4 h-4" />
-            {items.length > 0 ? 'Carica nuovo Excel' : 'Carica Excel'}
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
-              disabled={!companyId}
-              onChange={e => { setErr(''); onFileChange(e, type) }} />
-          </label>
-          {!companyId && <span className="text-xs text-zinc-500">Seleziona prima una società</span>}
-          {err && <span className="text-xs text-red-400">{err}</span>}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="bg-zinc-800/50 rounded-lg overflow-hidden">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-zinc-700">
-                  <th className="text-left px-3 py-2 text-zinc-400 font-medium">Nominativo</th>
-                  <th className="text-right px-3 py-2 text-zinc-400 font-medium">Importo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.map((item, i) => (
-                  <tr key={i} className="border-b border-zinc-700/40 last:border-0">
-                    <td className="px-3 py-1.5 text-zinc-300">{item.name}</td>
-                    <td className="px-3 py-1.5 text-right text-zinc-200 tabular-nums">{formatEur(item.amountCents)}</td>
-                  </tr>
-                ))}
-                <tr className="border-t border-zinc-600">
-                  <td className="px-3 py-1.5 text-zinc-400 font-medium">{preview.length} nominativi</td>
-                  <td className="px-3 py-1.5 text-right text-red-400 font-medium tabular-nums">
-                    -{formatEur(preview.reduce((s, i) => s + i.amountCents, 0))}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">Data pagamento *</label>
-              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
-                className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-            </div>
-            <div className="flex gap-2 self-end">
-              <button onClick={onReimport}
-                className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm rounded-lg">
-                Annulla
-              </button>
-              <button onClick={() => onImport(type)} disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50">
-                <Check className="w-4 h-4" />
-                {loading ? 'Importazione...' : `Conferma (${preview.length} voci)`}
-              </button>
-            </div>
-          </div>
-          {err && <p className="text-red-400 text-xs">{err}</p>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ────────────────────────────────────────────────────────────────────────────
 // ReconciliationSection
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1601,6 +1297,31 @@ function ReconciliationSection({
       await fetchData(companyId, month)
       router.refresh()
     })
+  }
+
+  const [paidTarget, setPaidTarget] = useState<PaymentScheduleItem | null>(null)
+  const [paidDate, setPaidDate]     = useState(today())
+  const [paidAmount, setPaidAmount] = useState('')
+  const [paidSaving, setPaidSaving] = useState(false)
+
+  function openPaidModal(item: PaymentScheduleItem) {
+    setPaidTarget(item)
+    setPaidDate(new Date().toISOString().split('T')[0])
+    setPaidAmount((Math.abs(item.amount_cents) / 100).toFixed(2))
+  }
+
+  async function handleMarkPaid(e: React.FormEvent) {
+    e.preventDefault()
+    if (!paidTarget) return
+    const cents = Math.round(parseFloat(paidAmount) * 100)
+    if (isNaN(cents) || cents <= 0) return
+    setPaidSaving(true)
+    const res = await markCommitmentPaid(paidTarget.id, paidDate, cents)
+    setPaidSaving(false)
+    if ('error' in res) return alert(String(res.error))
+    setPaidTarget(null)
+    await fetchData(companyId, month)
+    router.refresh()
   }
 
   const monthLabel      = new Date(month + '-01').toLocaleDateString('it-IT', { year: 'numeric', month: 'long' })
@@ -1675,6 +1396,10 @@ function ReconciliationSection({
                         </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => openPaidModal(item)}
+                          className="p-1.5 rounded text-zinc-500 hover:text-emerald-400 hover:bg-zinc-700" title="Segna come pagato">
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
                         <button onClick={() => handleCancel(item.id)}
                           className="p-1.5 rounded text-zinc-500 hover:text-amber-400 hover:bg-zinc-700" title="Annulla impegno">
                           <Ban className="w-3.5 h-3.5" />
@@ -1728,6 +1453,38 @@ function ReconciliationSection({
 
         </div>
       )}
+
+      {/* Modal segna pagato */}
+      {paidTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPaidTarget(null)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-zinc-100 mb-1">Segna come pagato</h3>
+            <p className="text-xs text-zinc-400 mb-4 truncate">{paidTarget.supplier_name} — {formatEur(Math.abs(paidTarget.amount_cents))}</p>
+            <form onSubmit={handleMarkPaid} className="space-y-3">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Data pagamento</label>
+                <input type="date" value={paidDate} onChange={e => setPaidDate(e.target.value)} required
+                  className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Importo pagato (€)</label>
+                <input type="number" step="0.01" min="0.01" value={paidAmount} onChange={e => setPaidAmount(e.target.value)} required
+                  className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button type="submit" disabled={paidSaving}
+                  className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm rounded-lg font-medium disabled:opacity-50">
+                  {paidSaving ? 'Salvataggio...' : 'Conferma'}
+                </button>
+                <button type="button" onClick={() => setPaidTarget(null)}
+                  className="flex-1 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm rounded-lg">
+                  Annulla
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1739,7 +1496,6 @@ function ReconciliationSection({
 const TABS = [
   { value: 'commitments',    label: 'Impegni',          icon: Calendar },
   { value: 'templates',      label: 'Costi ricorrenti', icon: Repeat },
-  { value: 'salary',         label: 'Stipendi',         icon: Users },
   { value: 'reconciliation', label: 'Riconciliazione',  icon: Scale },
 ]
 
@@ -1788,9 +1544,6 @@ export default function ImpegniClient({ items, companies, templates, matchedIds 
       )}
       {activeTab === 'templates' && (
         <TemplatesSection templates={templates} companies={companies} />
-      )}
-      {activeTab === 'salary' && (
-        <SalarySection items={items} companies={companies} />
       )}
       {activeTab === 'reconciliation' && (
         <ReconciliationSection companies={companies} />

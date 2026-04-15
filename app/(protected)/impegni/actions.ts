@@ -106,6 +106,23 @@ export async function deleteCommitment(id: string): Promise<CommitmentResult> {
   return { ok: true }
 }
 
+export async function markCommitmentPaid(id: string, paidDate: string, paidAmountCents: number): Promise<CommitmentResult> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autenticato' }
+
+  const { error } = await supabase
+    .from('payment_schedule')
+    .update({ status: 'paid', paid_date: paidDate, paid_amount_cents: paidAmountCents })
+    .eq('id', id)
+    .eq('entry_type', 'commitment')
+
+  if (error) return { error: error.message }
+  revalidatePath('/impegni')
+  revalidatePath('/payments')
+  return { ok: true }
+}
+
 export async function createRecurringCommitments(
   input: CommitmentInput,
   frequency: 'monthly' | 'quarterly' | 'annual',
