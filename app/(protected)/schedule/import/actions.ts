@@ -182,8 +182,7 @@ async function computeDiff(
     .eq('entry_type', 'accounting')
   if (dbErr) return { error: dbErr.message }
 
-  // Map matchKey → dbRow
-  const dbMap = new Map<string, {
+  type DbRowInfo = {
     id: string
     due_date: string
     amount_cents: number
@@ -191,10 +190,14 @@ async function computeDiff(
     document_number: string | null
     status: string | null
     paid_amount_cents: number | null
-  }>()
+  }
+
+  // Map matchKey → array di dbRow (una fattura può avere N rate)
+  const dbMap = new Map<string, DbRowInfo[]>()
   for (const dbRow of dbRows ?? []) {
     const key = buildDbMatchKey(companyId, dbRow)
-    if (key) dbMap.set(key, {
+    if (!key) continue
+    const info: DbRowInfo = {
       id: dbRow.id,
       due_date: dbRow.due_date,
       amount_cents: dbRow.amount_cents,
@@ -202,16 +205,15 @@ async function computeDiff(
       document_number: dbRow.document_number,
       status: dbRow.status,
       paid_amount_cents: dbRow.paid_amount_cents,
-    })
+    }
+    const list = dbMap.get(key)
+    if (list) list.push(info)
+    else dbMap.set(key, [info])
   }
 
-  const added: ParsedRow[] = []
+  // Raggruppa anche le righe XLS per matchKey
+  const xlsGroups = new Map<string, ParsedRow[]>()
   const alwaysNew: ParsedRow[] = []
-  const modified: DiffModified[] = []
-  const paidConflicts: PaidConflict[] = []
-  const xlsKeys = new Set<string>()
-  let unchanged = 0
-
   for (const row of rows) {
     if (row.entry_type !== 'accounting') {
       alwaysNew.push(row)
@@ -222,46 +224,103 @@ async function computeDiff(
       alwaysNew.push(row)
       continue
     }
-    xlsKeys.add(key)
-    const dbRow = dbMap.get(key)
-    if (!dbRow) {
-      added.push(row)
-    } else if (dbRow.due_date !== row.due_date || dbRow.amount_cents !== row.amount_cents) {
-      if (dbRow.status === 'paid') {
-        paidConflicts.push({
-          dbId: dbRow.id,
-          supplierName: dbRow.supplier_name,
-          documentNumber: dbRow.document_number,
-          dbAmountCents: dbRow.amount_cents,
-          paidAmountCents: dbRow.paid_amount_cents ?? 0,
-          dueDate: dbRow.due_date,
-          xlsAmountCents: row.amount_cents,
-          xlsDueDate: row.due_date,
-        })
-      } else {
-        modified.push({
-          dbId: dbRow.id,
-          matchKey: key,
-          dbDueDate: dbRow.due_date,
-          dbAmountCents: dbRow.amount_cents,
-          row,
-        })
-      }
-    } else {
-      unchanged++
-    }
+    const list = xlsGroups.get(key)
+    if (list) list.push(row)
+    else xlsGroups.set(key, [row])
   }
 
+  const added: ParsedRow[] = []
+  const modified: DiffModified[] = []
+  const paidConflicts: PaidConflict[] = []
   const removed: DiffRemoved[] = []
-  for (const [key, dbRow] of dbMap) {
-    if (!xlsKeys.has(key)) {
-      removed.push({
-        dbId: dbRow.id,
-        supplierName: dbRow.supplier_name,
-        documentNumber: dbRow.document_number,
-        dueDate: dbRow.due_date,
-        amountCents: dbRow.amount_cents,
-      })
+  let unchanged = 0
+
+  const allKeys = new Set<string>([...xlsGroups.keys(), ...dbMap.keys()])
+
+  for (const key of allKeys) {
+    const xlsRows = xlsGroups.get(key) ?? []
+    const dbList = dbMap.get(key) ?? []
+    const usedXls = new Set<number>()
+    const usedDb = new Set<number>()
+
+    // Pass 1: match esatti (stessa data + stesso importo) → unchanged
+    for (let i = 0; i < xlsRows.length; i++) {
+      const x = xlsRows[i]
+      for (let j = 0; j < dbList.length; j++) {
+        if (usedDb.has(j)) continue
+        const d = dbList[j]
+        if (d.due_date === x.due_date && d.amount_cents === x.amount_cents) {
+          usedXls.add(i)
+          usedDb.add(j)
+          unchanged++
+          break
+        }
+      }
+    }
+
+    // Pass 2: accoppia residui per distanza minima (giorni + importo)
+    for (let i = 0; i < xlsRows.length; i++) {
+      if (usedXls.has(i)) continue
+      const x = xlsRows[i]
+      let bestJ = -1
+      let bestScore = Infinity
+      for (let j = 0; j < dbList.length; j++) {
+        if (usedDb.has(j)) continue
+        const d = dbList[j]
+        const daysDiff = Math.abs(
+          new Date(d.due_date).getTime() - new Date(x.due_date).getTime()
+        ) / 86400000
+        const amountDiff = Math.abs(d.amount_cents - x.amount_cents) / 100
+        const score = daysDiff * 1000 + amountDiff
+        if (score < bestScore) {
+          bestScore = score
+          bestJ = j
+        }
+      }
+      if (bestJ >= 0) {
+        const d = dbList[bestJ]
+        usedXls.add(i)
+        usedDb.add(bestJ)
+        if (d.status === 'paid') {
+          paidConflicts.push({
+            dbId: d.id,
+            supplierName: d.supplier_name,
+            documentNumber: d.document_number,
+            dbAmountCents: d.amount_cents,
+            paidAmountCents: d.paid_amount_cents ?? 0,
+            dueDate: d.due_date,
+            xlsAmountCents: x.amount_cents,
+            xlsDueDate: x.due_date,
+          })
+        } else {
+          modified.push({
+            dbId: d.id,
+            matchKey: key,
+            dbDueDate: d.due_date,
+            dbAmountCents: d.amount_cents,
+            row: x,
+          })
+        }
+      }
+    }
+
+    // Pass 3: XLS senza coppia → added (nuove rate da fatture ripianificate)
+    for (let i = 0; i < xlsRows.length; i++) {
+      if (!usedXls.has(i)) added.push(xlsRows[i])
+    }
+
+    // Pass 4: DB senza coppia → removed (rate consolidate o sparite)
+    for (let j = 0; j < dbList.length; j++) {
+      if (!usedDb.has(j)) {
+        const d = dbList[j]
+        removed.push({
+          dbId: d.id,
+          supplierName: d.supplier_name,
+          documentNumber: d.document_number,
+          dueDate: d.due_date,
+          amountCents: d.amount_cents,
+        })
+      }
     }
   }
 

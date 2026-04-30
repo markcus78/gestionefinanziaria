@@ -1,0 +1,186 @@
+# Modello previsionale incassi giornalieri Wellness Town — DOW+DOM
+
+## Contesto
+
+Questo modello prevede l'incasso giornaliero di Wellness Town (Appiae Sport SSD) basandosi su due fattori moltiplicativi estratti da 14 mesi di dati storici (gennaio 2025 – febbraio 2026, ~20.000 transazioni, €1.92M totali).
+
+Il modello si chiama **DOW+DOM** perché decompone l'incasso giornaliero in:
+- **DOW** (Day Of Week): il giorno della settimana in cui cade
+- **DOM** (Day Of Month): il giorno del mese (effetto billing cycle / scadenze rate)
+
+## Formula
+
+```
+Incasso_previsto(giorno) = (Budget_mese ÷ N_giorni_mese) × DOW_mult × DOM_mult
+```
+
+Dove:
+- `Budget_mese` = obiettivo di incasso mensile (es. €140.000)
+- `N_giorni_mese` = numero di giorni nel mese (28-31)
+- `DOW_mult` = moltiplicatore basato sul giorno della settimana
+- `DOM_mult` = moltiplicatore basato sul giorno del mese
+
+## Moltiplicatori DOW (giorno della settimana)
+
+Il driver più forte. Il lunedì incassa il 36% in più della media, la domenica il 45% in meno.
+
+```python
+DOW_MULTIPLIERS = {
+    0: 1.3555,  # Lunedì — giorno più forte, inizio settimana + rinnovi
+    1: 1.0783,  # Martedì
+    2: 1.0398,  # Mercoledì
+    3: 1.0522,  # Giovedì
+    4: 1.1797,  # Venerdì — secondo giorno più forte
+    5: 0.7490,  # Sabato — calo netto
+    6: 0.5455,  # Domenica — giorno più debole
+}
+```
+
+**Interpretazione**: i giorni feriali infrasettimanali (lun-ven) hanno moltiplicatore >1.0, il weekend crolla. Questo riflette il pattern "fitness = routine lavorativa" degli iscritti.
+
+## Moltiplicatori DOM (giorno del mese)
+
+Cattura il ciclo di billing: le rate automatiche (Stripe, Alma Pay, TSPay) si concentrano nei primi giorni del mese e a fine mese.
+
+```python
+DOM_MULTIPLIERS = {
+    1:  1.2407,   # Inizio mese — scadenze rate
+    2:  1.7991,   # PICCO ASSOLUTO — la maggior parte delle rate automatiche cade qui
+    3:  1.2075,   # Coda delle rate di inizio mese
+    4:  1.0494,
+    5:  0.8500,
+    6:  0.7798,   # Valle post-billing
+    7:  0.9497,
+    8:  1.0967,
+    9:  0.9052,
+    10: 1.1154,   # Piccolo picco — possibili scadenze decadali
+    11: 0.8558,
+    12: 1.0244,
+    13: 0.8726,
+    14: 0.7186,   # Uno dei giorni più deboli del mese
+    15: 1.1799,   # Picco metà mese — scadenze quindicinali
+    16: 0.9242,
+    17: 1.0140,
+    18: 0.9342,
+    19: 0.8416,
+    20: 0.7505,   # Inizio della "valle" della terza decade
+    21: 0.7508,
+    22: 0.8701,
+    23: 0.7279,   # Giorno più debole del mese (al netto del DOW)
+    24: 0.7928,
+    25: 0.7781,
+    26: 0.9069,
+    27: 1.0672,   # Risalita verso fine mese
+    28: 1.1079,
+    29: 1.0925,   # Rinnovi e chiusure fine mese
+    30: 1.5144,   # Forte picco fine mese
+    31: 1.6637,   # Secondo picco più alto dopo il giorno 2
+}
+```
+
+**Interpretazione**: il mese ha una forma a "U" — picco nei primi 3 giorni (rate automatiche), valle nella zona 19-25, risalita forte negli ultimi 2-3 giorni (rinnovi fine mese).
+
+## Come usare il modello
+
+### 1. Previsione giornaliera
+Per sapere quanto dovremmo incassare un giorno specifico:
+
+```python
+import calendar
+
+def previsione_giornaliera(budget_mese, anno, mese, giorno, giorno_settimana):
+    """
+    budget_mese: float, obiettivo mensile in euro (es. 140000)
+    anno: int
+    mese: int (1-12)
+    giorno: int (1-31)
+    giorno_settimana: int (0=lunedì, 6=domenica)
+    """
+    n_giorni = calendar.monthrange(anno, mese)[1]
+    base = budget_mese / n_giorni
+    return base * DOW_MULTIPLIERS[giorno_settimana] * DOM_MULTIPLIERS[giorno]
+```
+
+**Esempio**: martedì 2 marzo, budget €140k, 31 giorni:
+`(140.000 / 31) × 1.0783 × 1.7991 = €8.764`
+
+### 2. Previsione cumulata e "on track" check
+Per sapere se al giorno X siamo in linea col budget:
+
+```python
+from datetime import date, timedelta
+
+def previsione_cumulata(budget_mese, anno, mese, fino_al_giorno):
+    """Calcola l'incasso cumulato atteso dal giorno 1 al giorno indicato."""
+    n_giorni = calendar.monthrange(anno, mese)[1]
+    base = budget_mese / n_giorni
+    cumulato = 0
+    for g in range(1, fino_al_giorno + 1):
+        d = date(anno, mese, g)
+        dow = d.weekday()
+        cumulato += base * DOW_MULTIPLIERS[dow] * DOM_MULTIPLIERS[g]
+    return cumulato
+```
+
+### 3. Proiezione fine mese dal giorno X
+Il caso d'uso più potente: sei al giorno 20, hai incassato €X, quanto chiuderai il mese?
+
+```python
+def proiezione_fine_mese(incassato_al_giorno, anno, mese, giorno_corrente):
+    """
+    Dato l'incassato reale fino a giorno_corrente,
+    proietta il totale di fine mese usando i pesi del modello.
+    """
+    n_giorni = calendar.monthrange(anno, mese)[1]
+    
+    # Calcola il peso totale dei giorni passati e dell'intero mese
+    peso_passati = 0
+    peso_totale = 0
+    for g in range(1, n_giorni + 1):
+        d = date(anno, mese, g)
+        dow = d.weekday()
+        peso = DOW_MULTIPLIERS[dow] * DOM_MULTIPLIERS.get(g, 1.0)
+        peso_totale += peso
+        if g <= giorno_corrente:
+            peso_passati += peso
+    
+    # Proiezione = incassato / (% del mese già trascorsa secondo il modello)
+    pct_trascorsa = peso_passati / peso_totale
+    return incassato_al_giorno / pct_trascorsa
+```
+
+**Esempio**: al giorno 20 hai incassato €90.000:
+`proiezione = 90.000 / 0.684 = €131.579` (previsione fine mese)
+
+## Performance del modello (backtest)
+
+Testato su tutti i 14 mesi del dataset:
+
+| Metrica | Valore |
+|---------|--------|
+| R² (varianza spiegata) | 0.49 |
+| MAE giornaliero | €1.444 (su media di €4.681/giorno) |
+| Proiezione fine mese dal g.20: entro ±5% | 7/14 mesi (50%) |
+| Proiezione fine mese dal g.20: entro ±10% | 12/14 mesi (86%) |
+| Proiezione fine mese dal g.20: entro ±15% | 14/14 mesi (100%) |
+| Bias medio | 0.0% (non sovrastima né sottostima) |
+| Errore medio assoluto proiezione dal g.20 | 5.6% (~€7.700 su €137k) |
+
+## Pattern chiave da ricordare
+
+1. **Il giorno 2 del mese è il giorno d'oro**: incassa quasi il doppio della media (1.8x) per le rate automatiche. Se cade di lunedì è il giorno più forte possibile (1.8 × 1.36 = 2.44x).
+
+2. **Il lunedì vale quanto 2.5 domeniche**: non pianificare campagne o attività commerciali per la domenica.
+
+3. **La terza settimana del mese (19-25) è la valle**: se servono azioni commerciali correttive, vanno lanciate entro il giorno 15 per avere effetto prima della valle.
+
+4. **Gli ultimi 2-3 giorni del mese rimbalzano forte** (1.5-1.7x): molti rinnovi cadono a fine mese. Non farti prendere dal panico se al 25 sei sotto budget — c'è ancora un boost naturale in arrivo.
+
+5. **Il modello funziona meglio nei mesi "normali"** (errore ≤5%). Nei mesi con eventi anomali (settembre = mega-rinnovi, agosto = chiusura estiva, aprile = ponti) l'errore può salire al 10-12%.
+
+## Limiti
+
+- Il modello assume che il mix di metodi di pagamento e la struttura delle rate restino simili a quelli del periodo analizzato. Un cambio importante (es. migrazione completa da Stripe a TSPay) potrebbe spostare i picchi DOM.
+- Non tiene conto di fattori esterni: campagne marketing, eventi, meteo, festività mobili (Pasqua, ponti).
+- R² di 0.49 significa che il 51% della varianza è "rumore" — il modello dà la tendenza, non la certezza.
+- I moltiplicatori per i giorni 29-31 sono calcolati su meno mesi (non tutti i mesi hanno quei giorni) e sono quindi meno stabili.
