@@ -79,7 +79,20 @@ export function parseSalaryFile(buffer: ArrayBuffer): SalaryItem[] {
 }
 
 function cleanInstructorName(raw: string): string {
-  return raw.replace(/\s*\[.*?\]\s*$/, '').replace(/^[A-Z]{2}/, '').trim()
+  const noBracket = raw.replace(/\s*\[.*?\]\s*$/, '').trim()
+  // Rimuovi prefisso di 2 caratteri solo se coincide con le iniziali
+  // delle prime due parole del nome (es. "ZSZucchiatti Silvia" → "Zucchiatti Silvia",
+  // "mfmarasco francesco" → "marasco francesco", ma "Monticone Fabrizio" resta intatto)
+  if (noBracket.length >= 4) {
+    const prefix = noBracket.slice(0, 2)
+    const rest = noBracket.slice(2).trim()
+    const words = rest.split(/\s+/)
+    if (words.length >= 2 && words[0].length > 0 && words[1].length > 0) {
+      const expected = (words[0][0] + words[1][0]).toLowerCase()
+      if (prefix.toLowerCase() === expected) return rest
+    }
+  }
+  return noBracket
 }
 
 function parseCollaboratorSheet(buffer: ArrayBuffer, amountKeyword: string): SalaryItem[] {
