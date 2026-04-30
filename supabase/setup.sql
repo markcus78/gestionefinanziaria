@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS payment_schedule (
   is_intercompany BOOLEAN DEFAULT FALSE,
   counterpart_company_id UUID REFERENCES companies(id),
   status TEXT DEFAULT 'pending' CHECK (status IN (
-    'pending', 'scheduled', 'paid', 'postponed', 'disputed', 'cancelled'
+    'pending', 'scheduled', 'paid', 'partial', 'postponed', 'disputed', 'cancelled'
   )),
   paid_date DATE,
   paid_amount_cents BIGINT,

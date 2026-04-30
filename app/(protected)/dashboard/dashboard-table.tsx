@@ -34,6 +34,7 @@ function StatusBadge({ status }: { status: PaymentStatus }) {
     pending:   { label: 'Pendente',    cls: 'bg-amber-500/20 text-amber-400' },
     scheduled: { label: 'Programmato', cls: 'bg-blue-500/20 text-blue-400' },
     paid:      { label: 'Pagato',      cls: 'bg-emerald-500/20 text-emerald-400' },
+    partial:   { label: 'Parziale',    cls: 'bg-cyan-500/20 text-cyan-400' },
     postponed: { label: 'Posticipato', cls: 'bg-purple-500/20 text-purple-400' },
     disputed:  { label: 'Contestato',  cls: 'bg-red-500/20 text-red-400' },
     cancelled: { label: 'Annullato',   cls: 'bg-zinc-700 text-zinc-400' },
@@ -76,10 +77,10 @@ function RowActions({ item }: { item: Row }) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
-  const canMarkPaid = ['pending', 'scheduled', 'postponed'].includes(item.status)
-  const canPostpone = ['pending', 'scheduled'].includes(item.status)
-  const canSchedule = ['pending', 'postponed'].includes(item.status)
-  const canReset    = ['paid', 'scheduled', 'postponed'].includes(item.status)
+  const canMarkPaid = ['pending', 'scheduled', 'postponed', 'partial'].includes(item.status)
+  const canPostpone = ['pending', 'scheduled', 'partial'].includes(item.status)
+  const canSchedule = ['pending', 'postponed', 'partial'].includes(item.status)
+  const canReset    = ['paid', 'scheduled', 'postponed', 'partial'].includes(item.status)
 
   function run(fn: () => Promise<{ error?: string; success?: boolean }>) {
     setError(null)

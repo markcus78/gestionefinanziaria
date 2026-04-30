@@ -14,9 +14,18 @@ export async function markPaid(id: string, paidDate: string, paidAmountCents: nu
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
 
+  const { data: original } = await supabase
+    .from('payment_schedule')
+    .select('status, paid_amount_cents')
+    .eq('id', id)
+    .single()
+
+  const previouslyPaid = original?.status === 'partial' ? (original.paid_amount_cents ?? 0) : 0
+  const totalPaid = previouslyPaid + paidAmountCents
+
   const { error } = await supabase
     .from('payment_schedule')
-    .update({ status: 'paid', paid_date: paidDate, paid_amount_cents: paidAmountCents })
+    .update({ status: 'paid', paid_date: paidDate, paid_amount_cents: totalPaid })
     .eq('id', id)
   if (error) return { error: error.message }
   revalidateAll()
@@ -26,8 +35,7 @@ export async function markPaid(id: string, paidDate: string, paidAmountCents: nu
 export async function markPartiallyPaid(
   id: string,
   paidDate: string,
-  paidAmountCents: number,
-  residualDueDate: string
+  paidAmountCents: number
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -35,44 +43,34 @@ export async function markPartiallyPaid(
 
   const { data: original, error: fetchErr } = await supabase
     .from('payment_schedule')
-    .select('company_id, amount_cents, supplier_name, account_description, document_number')
+    .select('amount_cents, paid_amount_cents, flow_type')
     .eq('id', id)
     .single()
   if (fetchErr || !original) return { error: fetchErr?.message ?? 'Riga non trovata' }
 
-  const totalCents = Math.abs(original.amount_cents)
-  const residualCents = totalCents - paidAmountCents
+  const currentCents = Math.abs(original.amount_cents)
+  if (paidAmountCents <= 0) return { error: 'Importo non valido' }
+  if (paidAmountCents >= currentCents) return { error: 'Importo pari o superiore al residuo: usa Paga' }
+
+  const residualCents = currentCents - paidAmountCents
+  const previouslyPaid = original.paid_amount_cents ?? 0
+  const cumulativePaid = previouslyPaid + paidAmountCents
+  const sign = original.flow_type === 'out' ? -1 : 1
 
   const { error: updateErr } = await supabase
     .from('payment_schedule')
-    .update({ status: 'paid', paid_date: paidDate, paid_amount_cents: paidAmountCents })
+    .update({
+      status: 'partial',
+      paid_date: paidDate,
+      paid_amount_cents: cumulativePaid,
+      amount_cents: sign * residualCents,
+      amount_in_cents: original.flow_type === 'in' ? residualCents : 0,
+      amount_out_cents: original.flow_type === 'out' ? residualCents : 0,
+    })
     .eq('id', id)
   if (updateErr) return { error: updateErr.message }
 
-  if (residualCents > 0) {
-    const docNum = 'RES-' + (original.document_number ?? id).slice(0, 12)
-    const desc = original.account_description ? original.account_description + ' (residuo)' : '(residuo)'
-    const { error: insertErr } = await supabase.from('payment_schedule').insert({
-      company_id: original.company_id,
-      import_batch_id: null,
-      supplier_name: original.supplier_name,
-      account_description: desc,
-      due_date: residualDueDate,
-      amount_cents: -residualCents,
-      amount_in_cents: 0,
-      amount_out_cents: residualCents,
-      flow_type: 'out',
-      entry_type: 'commitment',
-      commitment_type: 'manual',
-      status: 'pending',
-      document_number: docNum,
-      is_intercompany: false,
-    })
-    if (insertErr) return { error: insertErr.message }
-  }
-
   revalidateAll()
-  revalidatePath('/impegni')
   return { success: true }
 }
 
@@ -111,13 +109,36 @@ export async function resetToPending(id: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
 
+  const { data: original, error: fetchErr } = await supabase
+    .from('payment_schedule')
+    .select('status, amount_cents, paid_amount_cents, flow_type')
+    .eq('id', id)
+    .single()
+  if (fetchErr || !original) return { error: fetchErr?.message ?? 'Riga non trovata' }
+
+  const update: Record<string, unknown> = {
+    status: 'pending',
+    paid_date: null,
+    paid_amount_cents: null,
+    postponed_to: null,
+    postpone_notes: null,
+  }
+
+  // Per i parziali ripristina l'importo totale (residuo corrente + già pagato)
+  if (original.status === 'partial') {
+    const totalCents = Math.abs(original.amount_cents) + (original.paid_amount_cents ?? 0)
+    const sign = original.flow_type === 'out' ? -1 : 1
+    update.amount_cents = sign * totalCents
+    update.amount_in_cents = original.flow_type === 'in' ? totalCents : 0
+    update.amount_out_cents = original.flow_type === 'out' ? totalCents : 0
+  }
+
   const { error } = await supabase
     .from('payment_schedule')
-    .update({ status: 'pending', paid_date: null, paid_amount_cents: null, postponed_to: null, postpone_notes: null })
+    .update(update)
     .eq('id', id)
   if (error) return { error: error.message }
-  revalidatePath('/payments')
-  revalidatePath('/schedule')
+  revalidateAll()
   return { success: true }
 }
 

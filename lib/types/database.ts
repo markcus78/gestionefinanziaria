@@ -141,7 +141,7 @@ export type ImportBatch = {
   status: string
 }
 
-export type PaymentStatus = 'pending' | 'scheduled' | 'paid' | 'postponed' | 'disputed' | 'cancelled'
+export type PaymentStatus = 'pending' | 'scheduled' | 'paid' | 'partial' | 'postponed' | 'disputed' | 'cancelled'
 export type FlowType = 'in' | 'out'
 export type EntryType = 'accounting' | 'commitment'
 

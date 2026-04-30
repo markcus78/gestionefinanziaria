@@ -281,7 +281,7 @@ async function computeDiff(
         const d = dbList[bestJ]
         usedXls.add(i)
         usedDb.add(bestJ)
-        if (d.status === 'paid') {
+        if (d.status === 'paid' || d.status === 'partial') {
           paidConflicts.push({
             dbId: d.id,
             supplierName: d.supplier_name,
@@ -566,7 +566,7 @@ export async function importIncrementalAction(
         dedup_key: newDedupKey,
       })
       .eq('id', m.dbId)
-      .not('status', 'in', '("paid","cancelled")')
+      .not('status', 'in', '("paid","partial","cancelled")')
     if (!updErr) rowsModified++
   }
 

@@ -15,7 +15,7 @@ import {
 const formatEur = (cents: number) =>
   new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100)
 
-type PaymentStatus = 'pending' | 'scheduled' | 'paid' | 'postponed' | 'disputed' | 'cancelled'
+type PaymentStatus = 'pending' | 'scheduled' | 'paid' | 'partial' | 'postponed' | 'disputed' | 'cancelled'
 
 type Payment = {
   id: string
@@ -83,7 +83,6 @@ const inputCls = 'w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2
 // ── Badge ────────────────────────────────────────────────────────────────────
 
 function StatusBadge({ payment }: { payment: Payment }) {
-  const total = Math.abs(payment.amount_cents)
   const paid = payment.paid_amount_cents ?? 0
 
   switch (payment.status) {
@@ -93,10 +92,17 @@ function StatusBadge({ payment }: { payment: Payment }) {
       return <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-300">Programmato</span>
     case 'postponed':
       return <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/60 text-amber-300">Posticipato</span>
+    case 'partial':
+      return (
+        <span
+          className="text-xs px-2 py-0.5 rounded-full bg-cyan-900/60 text-cyan-300"
+          title={paid > 0 ? `Già pagato ${formatEur(paid)}` : undefined}
+        >
+          Parziale {paid > 0 ? `(–${formatEur(paid)})` : ''}
+        </span>
+      )
     case 'paid':
-      return paid < total && paid > 0
-        ? <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/60 text-green-300">Pagato {formatEur(paid)}</span>
-        : <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/60 text-green-300">Pagato</span>
+      return <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/60 text-green-300">Pagato</span>
     default:
       return <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-700 text-zinc-400">{payment.status}</span>
   }
@@ -125,10 +131,10 @@ function PaymentRow({
   const company = companies.find(c => c.id === payment.company_id)
   const amountCents = Math.abs(payment.amount_cents)
 
-  const canSchedule = status === 'pending' || status === 'postponed'
-  const canPay = status === 'pending' || status === 'scheduled' || status === 'postponed'
-  const canPostpone = status === 'pending' || status === 'scheduled' || status === 'postponed'
-  const canReset = status === 'paid' || status === 'scheduled'
+  const canSchedule = status === 'pending' || status === 'postponed' || status === 'partial'
+  const canPay = status === 'pending' || status === 'scheduled' || status === 'postponed' || status === 'partial'
+  const canPostpone = status === 'pending' || status === 'scheduled' || status === 'postponed' || status === 'partial'
+  const canReset = status === 'paid' || status === 'scheduled' || status === 'partial'
 
   const dateFmt = (d: string) =>
     new Date(d + 'T12:00:00').toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })
@@ -350,22 +356,21 @@ function ModalPartialPay({
   onClose: () => void
 }) {
   const router = useRouter()
-  const totalCents = Math.abs(payment.amount_cents)
+  const currentCents = Math.abs(payment.amount_cents)
+  const alreadyPaid = payment.paid_amount_cents ?? 0
   const [date, setDate] = useState(today)
   const [amount, setAmount] = useState('')
-  const [residualDate, setResidualDate] = useState('')
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
 
   const paidCents = Math.round(parseFloat(amount.replace(',', '.') || '0') * 100)
-  const residualCents = Math.max(0, totalCents - paidCents)
+  const residualCents = Math.max(0, currentCents - paidCents)
 
   function handleSubmit() {
     if (isNaN(paidCents) || paidCents <= 0) { setError('Importo non valido'); return }
-    if (paidCents >= totalCents) { setError('Per il totale usa "Paga"'); return }
-    if (!residualDate) { setError('Inserisci la nuova data per il residuo'); return }
+    if (paidCents >= currentCents) { setError('Per il totale usa "Paga"'); return }
     startTransition(async () => {
-      const res = await markPartiallyPaid(payment.id, date, paidCents, residualDate)
+      const res = await markPartiallyPaid(payment.id, date, paidCents)
       if ('error' in res) { setError(String(res.error)); return }
       router.refresh()
       onClose()
@@ -375,9 +380,16 @@ function ModalPartialPay({
   return (
     <ModalWrapper title="Pagamento parziale" onClose={onClose}>
       <div className="space-y-4">
-        <div className="bg-zinc-800/50 rounded-lg px-3 py-2 text-sm text-zinc-400">
-          Totale fattura:{' '}
-          <span className="text-zinc-100 font-medium">{formatEur(totalCents)}</span>
+        <div className="bg-zinc-800/50 rounded-lg px-3 py-2 text-sm text-zinc-400 space-y-0.5">
+          <div>
+            Importo da pagare:{' '}
+            <span className="text-zinc-100 font-medium">{formatEur(currentCents)}</span>
+          </div>
+          {alreadyPaid > 0 && (
+            <div className="text-xs text-zinc-500">
+              Già pagato in precedenza: {formatEur(alreadyPaid)}
+            </div>
+          )}
         </div>
         <Field label="Data pagamento">
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
@@ -391,14 +403,11 @@ function ModalPartialPay({
             className={inputCls}
           />
         </Field>
-        {paidCents > 0 && paidCents < totalCents && (
-          <div className="bg-amber-950/40 border border-amber-800/40 rounded-lg px-3 py-2 text-sm text-amber-300">
-            Residuo: <span className="font-medium">{formatEur(residualCents)}</span>
+        {paidCents > 0 && paidCents < currentCents && (
+          <div className="bg-cyan-950/40 border border-cyan-800/40 rounded-lg px-3 py-2 text-sm text-cyan-300">
+            Residuo dopo questo pagamento: <span className="font-medium">{formatEur(residualCents)}</span>
           </div>
         )}
-        <Field label="Data scadenza residuo">
-          <input type="date" value={residualDate} onChange={e => setResidualDate(e.target.value)} className={inputCls} />
-        </Field>
         {error && <p className="text-sm text-red-400">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200">

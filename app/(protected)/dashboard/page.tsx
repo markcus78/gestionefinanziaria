@@ -91,7 +91,7 @@ export default async function DashboardPage() {
               supplier_name: item.supplier_name as string | null,
               account_description: item.account_description as string | null,
               amount_cents: item.amount_cents as number,
-              status: item.status as 'pending' | 'scheduled' | 'paid' | 'postponed' | 'disputed' | 'cancelled',
+              status: item.status as 'pending' | 'scheduled' | 'paid' | 'partial' | 'postponed' | 'disputed' | 'cancelled',
               document_type: item.document_type as string | null,
               document_number: item.document_number as string | null,
               due_date: item.due_date as string,
