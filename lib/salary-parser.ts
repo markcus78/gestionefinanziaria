@@ -88,13 +88,26 @@ function parseCollaboratorSheet(buffer: ArrayBuffer, amountKeyword: string): Sal
   const rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null })
   if (rawRows.length < 2) return []
 
-  const header = (rawRows[0] as unknown[]).map(h => String(h ?? '').toLowerCase().trim())
-  const nameCol = header.findIndex(h => h.includes('collaboratore'))
-  const amountCol = header.findIndex(h => h.includes(amountKeyword))
-  if (nameCol === -1 || amountCol === -1) return []
+  // Cerca la riga di header (può essere preceduta da banner/titoli del software)
+  let headerIdx = -1
+  let nameCol = -1
+  let amountCol = -1
+  const scanLimit = Math.min(rawRows.length, 10)
+  for (let i = 0; i < scanLimit; i++) {
+    const row = (rawRows[i] as unknown[]).map(h => String(h ?? '').toLowerCase().trim())
+    const nIdx = row.findIndex(h => h.includes('collaboratore'))
+    const aIdx = row.findIndex(h => h.includes(amountKeyword))
+    if (nIdx !== -1 && aIdx !== -1) {
+      headerIdx = i
+      nameCol = nIdx
+      amountCol = aIdx
+      break
+    }
+  }
+  if (headerIdx === -1) return []
 
   const items: SalaryItem[] = []
-  for (const rawRow of rawRows.slice(1) as unknown[][]) {
+  for (const rawRow of rawRows.slice(headerIdx + 1) as unknown[][]) {
     const name = cleanInstructorName(String(rawRow[nameCol] ?? '').trim())
     const rawAmount = rawRow[amountCol]
     const amount = typeof rawAmount === 'number'
