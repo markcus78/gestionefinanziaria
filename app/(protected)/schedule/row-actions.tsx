@@ -274,7 +274,7 @@ function PartialPaidModal({
               max={(totalCents / 100 - 0.01).toFixed(2)}
               value={amount}
               onChange={e => setAmount(e.target.value)}
-              placeholder={`Max ${((totalCents / 100) - 0.01).toFixed(2)}`}
+              placeholder={`Max ${formatEur(totalCents - 1)}`}
               required
               className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />

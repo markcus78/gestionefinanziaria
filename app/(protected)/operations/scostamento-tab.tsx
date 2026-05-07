@@ -8,7 +8,7 @@ function formatEur(cents: number) {
 }
 
 function formatPct(v: number) {
-  return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
+  return (v >= 0 ? '+' : '') + new Intl.NumberFormat('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v) + '%'
 }
 
 type Props = {

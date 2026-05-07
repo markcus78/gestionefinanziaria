@@ -8,7 +8,11 @@ import { WEEKDAYS } from '@/lib/channel-utils'
 import type { Company, CashChannel, CompanyCashChannel } from '@/lib/types/database'
 
 function formatPct(pct: number) {
-  return (pct * 100).toFixed(2) + '%'
+  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pct * 100) + '%'
+}
+
+function formatEur(cents: number) {
+  return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100)
 }
 
 function payoutLabel(config: CompanyCashChannel | undefined): string {
@@ -230,7 +234,7 @@ export function ChannelsSection({
                       {formatPct(commPct)}
                     </td>
                     <td className="px-4 py-3 text-right text-zinc-300">
-                      {commFixed > 0 ? `${(commFixed / 100).toFixed(2)} €` : '—'}
+                      {commFixed > 0 ? formatEur(commFixed) : '—'}
                     </td>
                     <td className="px-4 py-3 text-right text-zinc-300">
                       {settlement > 0 ? `${settlement} gg` : 'immediato'}
