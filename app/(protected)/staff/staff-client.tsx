@@ -48,6 +48,9 @@ function StatusBadge({ status }: { status: string }) {
   if (status === 'paid') {
     return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-emerald-900/50 text-emerald-400 border border-emerald-800">Pagato</span>
   }
+  if (status === 'partial') {
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-cyan-900/50 text-cyan-400 border border-cyan-800">Parziale</span>
+  }
   return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-900/50 text-amber-400 border border-amber-800">Da pagare</span>
 }
 
@@ -257,17 +260,20 @@ function ItemsTable({ items, onPay, onReset }: {
               </td>
               <td className="px-3 py-2 text-center"><StatusBadge status={item.status} /></td>
               <td className="px-3 py-2 text-right">
-                {item.status === 'paid' ? (
-                  <button onClick={() => onReset(item.id)}
-                    className="px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg">
-                    Reset
-                  </button>
-                ) : (
-                  <button onClick={() => onPay(item)}
-                    className="px-2 py-1 text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-900/30 hover:bg-emerald-900/50 rounded-lg border border-emerald-800">
-                    Paga
-                  </button>
-                )}
+                <div className="flex items-center justify-end gap-1.5">
+                  {(item.status === 'pending' || item.status === 'partial') && (
+                    <button onClick={() => onPay(item)}
+                      className="px-2 py-1 text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-900/30 hover:bg-emerald-900/50 rounded-lg border border-emerald-800">
+                      Paga
+                    </button>
+                  )}
+                  {(item.status === 'paid' || item.status === 'partial') && (
+                    <button onClick={() => onReset(item.id)}
+                      className="px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg">
+                      Reset
+                    </button>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
@@ -318,7 +324,7 @@ export default function StaffClient({
   const totalBudget  = (dipBudget ? Math.abs(dipBudget.amount_cents) : 0) + (colBudget ? Math.abs(colBudget.amount_cents) : 0) + (f24Budget ? Math.abs(f24Budget.amount_cents) : 0)
   const totalActual  = dipActualTotal + colActualTotal + f24ActualCents
   const personCount  = salaryItems.length + extraItems.length + collabItems.length + pivaItems.length
-  const paidCents    = actualItems.filter(i => i.status === 'paid').reduce((s, i) => s + Math.abs(i.paid_amount_cents ?? i.amount_cents), 0)
+  const paidCents    = actualItems.reduce((s, i) => s + (i.status === 'paid' ? Math.abs(i.paid_amount_cents ?? i.amount_cents) : i.status === 'partial' ? (i.paid_amount_cents ?? 0) : 0), 0)
 
   const isAppiae = selectedCompany?.code === 'APPIAE'
 
@@ -535,15 +541,16 @@ export default function StaffClient({
               }} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded-lg">
                 <Pencil className="w-3.5 h-3.5" /> Modifica
               </button>
-              {taxItem.status === 'paid' ? (
-                <button onClick={() => handleReset(taxItem.id)}
-                  className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg">
-                  Reset
-                </button>
-              ) : (
+              {(taxItem.status === 'pending' || taxItem.status === 'partial') && (
                 <button onClick={() => openPayModal(taxItem)}
                   className="px-3 py-1.5 text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-900/30 hover:bg-emerald-900/50 rounded-lg border border-emerald-800">
                   Paga
+                </button>
+              )}
+              {(taxItem.status === 'paid' || taxItem.status === 'partial') && (
+                <button onClick={() => handleReset(taxItem.id)}
+                  className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg">
+                  Reset
                 </button>
               )}
             </div>
@@ -591,6 +598,17 @@ export default function StaffClient({
               </button>
             </div>
             <p className="text-sm text-zinc-400 mb-4">{payingItem.supplier_name}</p>
+            <div className="bg-zinc-800/50 rounded-lg px-3 py-2 text-sm text-zinc-400 mb-3 space-y-0.5">
+              <div>
+                Importo da pagare:{' '}
+                <span className="text-zinc-100 font-medium">{formatEur(Math.abs(payingItem.amount_cents))}</span>
+              </div>
+              {payingItem.status === 'partial' && (payingItem.paid_amount_cents ?? 0) > 0 && (
+                <div className="text-xs text-zinc-500">
+                  Già pagato in precedenza: {formatEur(payingItem.paid_amount_cents ?? 0)}
+                </div>
+              )}
+            </div>
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Data pagamento</label>
@@ -602,6 +620,18 @@ export default function StaffClient({
                 <input type="number" step="0.01" value={payAmount} onChange={e => setPayAmount(e.target.value)}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-violet-500" />
               </div>
+              {(() => {
+                const cents = Math.round(parseFloat((payAmount || '0').replace(',', '.')) * 100)
+                const current = Math.abs(payingItem.amount_cents)
+                if (cents > 0 && cents < current) {
+                  return (
+                    <div className="bg-cyan-950/40 border border-cyan-800/40 rounded-lg px-3 py-2 text-xs text-cyan-300">
+                      Pagamento parziale — residuo dopo: <span className="font-medium">{formatEur(current - cents)}</span>
+                    </div>
+                  )
+                }
+                return null
+              })()}
             </div>
             {payErr && <p className="text-red-400 text-xs mt-2">{payErr}</p>}
             <div className="flex gap-2 mt-4">
