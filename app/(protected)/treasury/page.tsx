@@ -49,9 +49,9 @@ export default async function TreasuryPage({
     supabase.from('monthly_revenue_forecasts').select('company_id, forecast_gross_cents').eq('year', year).eq('month', month),
     supabase.from('daily_collections').select('company_id, net_amount_cents, settlement_expected_date').eq('is_settled', false).not('settlement_expected_date', 'is', null),
     supabase.from('payment_schedule')
-      .select('id, company_id, supplier_name, account_description, due_date, amount_cents, status, priority_score, priority_override, is_intercompany, supplier_registry(category, is_critical)')
+      .select('id, company_id, supplier_name, account_description, due_date, amount_cents, paid_amount_cents, status, priority_score, priority_override, is_intercompany, supplier_registry(category, is_critical)')
       .eq('flow_type', 'out')
-      .in('status', ['pending', 'scheduled'])
+      .in('status', ['pending', 'scheduled', 'partial'])
       .lte('due_date', future60)
       .order('due_date'),
   ])
@@ -117,7 +117,8 @@ export default async function TreasuryPage({
         category: sr?.category ?? null,
         isCritical: sr?.is_critical ?? false,
         dueDate: p.due_date,
-        amountCents: Math.abs(p.amount_cents),
+        // residuo: per le righe 'partial' amount_cents è il totale, non quanto resta da pagare
+        amountCents: Math.max(0, Math.abs(p.amount_cents) - (p.paid_amount_cents ?? 0)),
         priorityScore: p.priority_score,
         priorityOverride: p.priority_override,
         isIntercompany: p.is_intercompany ?? false,

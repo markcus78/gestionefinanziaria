@@ -166,6 +166,22 @@ CREATE TABLE IF NOT EXISTS payment_schedule (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_schedule_dedup ON payment_schedule(dedup_key);
 
+-- Movimenti di pagamento (acconto / saldo) di una riga dello scadenzario.
+-- Invariante: payment_schedule.amount_cents resta sempre l'importo totale originale,
+-- paid_amount_cents = SUM(payment_transactions.amount_cents), residuo = differenza.
+CREATE TABLE IF NOT EXISTS payment_transactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  payment_schedule_id UUID NOT NULL REFERENCES payment_schedule(id) ON DELETE CASCADE,
+  paid_date DATE,
+  amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+  note TEXT,
+  is_reconstructed BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by UUID REFERENCES auth.users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_schedule ON payment_transactions(payment_schedule_id);
+
 CREATE TABLE IF NOT EXISTS expense_forecasts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL REFERENCES companies(id),
@@ -257,6 +273,7 @@ ALTER TABLE daily_collections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE supplier_registry ENABLE ROW LEVEL SECURITY;
 ALTER TABLE import_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payment_schedule ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expense_forecasts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE intercompany_nettings ENABLE ROW LEVEL SECURITY;
 
@@ -272,6 +289,7 @@ CREATE POLICY "read_all" ON daily_collections FOR SELECT TO authenticated USING 
 CREATE POLICY "read_all" ON supplier_registry FOR SELECT TO authenticated USING (true);
 CREATE POLICY "read_all" ON import_batches FOR SELECT TO authenticated USING (true);
 CREATE POLICY "read_all" ON payment_schedule FOR SELECT TO authenticated USING (true);
+CREATE POLICY "read_all" ON payment_transactions FOR SELECT TO authenticated USING (true);
 CREATE POLICY "read_all" ON expense_forecasts FOR SELECT TO authenticated USING (true);
 CREATE POLICY "read_all" ON intercompany_nettings FOR SELECT TO authenticated USING (true);
 
@@ -296,6 +314,8 @@ CREATE POLICY "write_ops" ON import_batches FOR INSERT TO authenticated WITH CHE
 CREATE POLICY "update_ops" ON import_batches FOR UPDATE TO authenticated USING (get_user_role() IN ('strategic','operational'));
 CREATE POLICY "write_ops" ON payment_schedule FOR INSERT TO authenticated WITH CHECK (get_user_role() IN ('strategic','operational'));
 CREATE POLICY "update_ops" ON payment_schedule FOR UPDATE TO authenticated USING (get_user_role() IN ('strategic','operational'));
+CREATE POLICY "write_ops" ON payment_transactions FOR INSERT TO authenticated WITH CHECK (get_user_role() IN ('strategic','operational'));
+CREATE POLICY "update_ops" ON payment_transactions FOR UPDATE TO authenticated USING (get_user_role() IN ('strategic','operational'));
 CREATE POLICY "write_ops" ON expense_forecasts FOR INSERT TO authenticated WITH CHECK (get_user_role() IN ('strategic','operational'));
 CREATE POLICY "update_ops" ON expense_forecasts FOR UPDATE TO authenticated USING (get_user_role() IN ('strategic','operational'));
 CREATE POLICY "write_ops" ON intercompany_nettings FOR INSERT TO authenticated WITH CHECK (get_user_role() IN ('strategic','operational'));
@@ -311,6 +331,7 @@ CREATE POLICY "delete_strategic" ON daily_collections FOR DELETE TO authenticate
 CREATE POLICY "delete_strategic" ON supplier_registry FOR DELETE TO authenticated USING (get_user_role() = 'strategic');
 CREATE POLICY "delete_strategic" ON import_batches FOR DELETE TO authenticated USING (get_user_role() = 'strategic');
 CREATE POLICY "delete_strategic" ON payment_schedule FOR DELETE TO authenticated USING (get_user_role() = 'strategic');
+CREATE POLICY "delete_ops" ON payment_transactions FOR DELETE TO authenticated USING (get_user_role() IN ('strategic','operational'));
 CREATE POLICY "delete_strategic" ON expense_forecasts FOR DELETE TO authenticated USING (get_user_role() = 'strategic');
 CREATE POLICY "delete_strategic" ON intercompany_nettings FOR DELETE TO authenticated USING (get_user_role() = 'strategic');
 

@@ -1,13 +1,21 @@
 'use client'
 
-import { useState, useRef, useTransition } from 'react'
+import { Fragment, useState, useRef, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Check, Upload, RefreshCw, ChevronLeft, ChevronRight, X, Pencil, Save } from 'lucide-react'
+import { Check, Upload, RefreshCw, ChevronLeft, ChevronRight, ChevronDown, X, Pencil, Save, Trash2 } from 'lucide-react'
 import { parseSalaryFile, parseInstructorsFile, parsePivaFile } from '@/lib/salary-parser'
 import type { SalaryItem } from '@/lib/salary-parser'
-import { markStaffPaid, resetStaffToPending, saveBudget, importStaffItems, importStaffTaxItem } from './actions'
+import { markStaffPaid, resetStaffToPending, saveBudget, importStaffItems, importStaffTaxItem, deleteStaffTransaction, updateStaffTotal } from './actions'
 
 type Company = { id: string; code: string; name: string }
+
+type StaffTransaction = {
+  id: string
+  paid_date: string | null
+  amount_cents: number
+  note: string | null
+  is_reconstructed: boolean
+}
 
 type StaffItem = {
   id: string
@@ -21,6 +29,17 @@ type StaffItem = {
   paid_amount_cents: number | null
   paid_date: string | null
   reference_month: string | null
+  payment_transactions: StaffTransaction[] | null
+}
+
+/** Residuo da pagare: amount_cents è sempre il totale, paid_amount_cents la somma dei movimenti. */
+function residualOf(item: StaffItem) {
+  return Math.max(0, Math.abs(item.amount_cents) - (item.paid_amount_cents ?? 0))
+}
+
+function formatDay(d: string | null) {
+  if (!d) return null
+  return new Date(d + 'T00:00:00').toLocaleDateString('it-IT')
 }
 
 function formatEur(cents: number) {
@@ -230,53 +249,174 @@ function UploadSection({
   )
 }
 
-// ── ITEMS TABLE ─────────────────────────────────────────────────────────────
+// -- MOVIMENTI ---------------------------------------------------------------
 
-function ItemsTable({ items, onPay, onReset }: {
+function MovementsRow({ item, colSpan, onDeleteTx }: {
+  item: StaffItem
+  colSpan: number
+  onDeleteTx: (txId: string) => void
+}) {
+  const txs = [...(item.payment_transactions ?? [])].sort((a, b) => {
+    if (!a.paid_date) return -1
+    if (!b.paid_date) return 1
+    return a.paid_date.localeCompare(b.paid_date)
+  })
+
+  return (
+    <tr className="border-b border-zinc-700/40 bg-zinc-900/40">
+      <td colSpan={colSpan} className="px-3 py-2">
+        {txs.length === 0 ? (
+          <p className="text-xs text-zinc-500 italic">Nessun pagamento registrato</p>
+        ) : (
+          <div className="space-y-1">
+            {txs.map((t, i) => (
+              <div key={t.id} className="flex items-center gap-3 text-xs">
+                <span className="text-zinc-500 w-16 shrink-0">
+                  {txs.length === 1 ? 'Pagamento' : i === txs.length - 1 ? 'Saldo' : 'Acconto'}
+                </span>
+                <span className={`w-24 shrink-0 tabular-nums ${t.paid_date ? 'text-zinc-300' : 'text-zinc-600 italic'}`}>
+                  {formatDay(t.paid_date) ?? 'data n.d.'}
+                </span>
+                <span className="w-24 shrink-0 text-right text-emerald-400 tabular-nums">{formatEur(t.amount_cents)}</span>
+                {t.is_reconstructed && (
+                  <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 text-[10px]">ricostruito</span>
+                )}
+                <span className="text-zinc-600 truncate">{t.note}</span>
+                <button onClick={() => onDeleteTx(t.id)}
+                  className="ml-auto p-1 text-zinc-600 hover:text-red-400 shrink-0" title="Elimina movimento">
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+// -- ITEMS TABLE -------------------------------------------------------------
+
+function TotalCell({ item, onEditTotal }: { item: StaffItem; onEditTotal: (id: string, cents: number) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+
+  function save() {
+    const cents = parseCents(value)
+    if (isNaN(cents) || cents <= 0) return
+    setEditing(false)
+    onEditTotal(item.id, cents)
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-center justify-end gap-1 group">
+        <span className="text-red-400 tabular-nums">{formatEur(Math.abs(item.amount_cents))}</span>
+        <button
+          onClick={() => { setValue((Math.abs(item.amount_cents) / 100).toFixed(2)); setEditing(true) }}
+          className="p-0.5 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover:opacity-100"
+          title="Correggi importo totale">
+          <Pencil className="w-3 h-3" />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <input type="number" step="0.01" value={value} autoFocus
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
+        className="w-24 px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 text-right focus:outline-none focus:ring-1 focus:ring-violet-500" />
+      <button onClick={save} className="p-0.5 text-emerald-400 hover:text-emerald-300"><Save className="w-3 h-3" /></button>
+      <button onClick={() => setEditing(false)} className="p-0.5 text-zinc-500 hover:text-zinc-300"><X className="w-3 h-3" /></button>
+    </div>
+  )
+}
+
+function ItemsTable({ items, onPay, onReset, onDeleteTx, onEditTotal }: {
   items: StaffItem[]
   onPay: (item: StaffItem) => void
   onReset: (id: string) => void
+  onDeleteTx: (txId: string) => void
+  onEditTotal: (id: string, cents: number) => void
 }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  function toggle(id: string) {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   if (!items.length) return null
   return (
     <div className="bg-zinc-800/50 rounded-lg overflow-hidden">
       <table className="w-full text-xs">
         <thead><tr className="border-b border-zinc-700">
           <th className="text-left px-3 py-2 text-zinc-400 font-medium">Nominativo</th>
-          <th className="text-right px-3 py-2 text-zinc-400 font-medium">Importo</th>
+          <th className="text-right px-3 py-2 text-zinc-400 font-medium">Totale</th>
+          <th className="text-right px-3 py-2 text-zinc-400 font-medium">Pagato</th>
+          <th className="text-right px-3 py-2 text-zinc-400 font-medium">Residuo</th>
           <th className="text-center px-3 py-2 text-zinc-400 font-medium">Tipo</th>
           <th className="text-center px-3 py-2 text-zinc-400 font-medium">Stato</th>
           <th className="px-3 py-2"></th>
         </tr></thead>
         <tbody>
-          {items.map(item => (
-            <tr key={item.id} className="border-b border-zinc-700/40 last:border-0">
-              <td className="px-3 py-2 text-zinc-300">{item.supplier_name}</td>
-              <td className="px-3 py-2 text-right text-red-400 tabular-nums">{formatEur(Math.abs(item.amount_cents))}</td>
-              <td className="px-3 py-2 text-center">
-                <span className="px-1.5 py-0.5 rounded text-xs bg-zinc-700 text-zinc-300">
-                  {TYPE_LABEL[item.commitment_type ?? ''] ?? item.commitment_type}
-                </span>
-              </td>
-              <td className="px-3 py-2 text-center"><StatusBadge status={item.status} /></td>
-              <td className="px-3 py-2 text-right">
-                <div className="flex items-center justify-end gap-1.5">
-                  {(item.status === 'pending' || item.status === 'partial') && (
-                    <button onClick={() => onPay(item)}
-                      className="px-2 py-1 text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-900/30 hover:bg-emerald-900/50 rounded-lg border border-emerald-800">
-                      Paga
+          {items.map(item => {
+            const paid = item.paid_amount_cents ?? 0
+            const residual = residualOf(item)
+            const txCount = (item.payment_transactions ?? []).length
+            const isOpen = expanded.has(item.id)
+            return (
+              <Fragment key={item.id}>
+                <tr className="border-b border-zinc-700/40">
+                  <td className="px-3 py-2 text-zinc-300">
+                    <button onClick={() => toggle(item.id)}
+                      className="flex items-center gap-1.5 hover:text-zinc-100 text-left"
+                      title={txCount ? `${txCount} movimenti registrati` : 'Nessun movimento'}>
+                      <ChevronDown className={`w-3 h-3 text-zinc-600 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+                      {item.supplier_name}
+                      {txCount > 1 && <span className="px-1 rounded bg-zinc-700 text-zinc-400 text-[10px]">{txCount}</span>}
                     </button>
-                  )}
-                  {(item.status === 'paid' || item.status === 'partial') && (
-                    <button onClick={() => onReset(item.id)}
-                      className="px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg">
-                      Reset
-                    </button>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
+                  </td>
+                  <td className="px-3 py-2 text-right"><TotalCell item={item} onEditTotal={onEditTotal} /></td>
+                  <td className="px-3 py-2 text-right tabular-nums text-emerald-400">
+                    {paid > 0 ? formatEur(paid) : <span className="text-zinc-600">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-cyan-400">
+                    {residual > 0 ? formatEur(residual) : <span className="text-zinc-600">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <span className="px-1.5 py-0.5 rounded text-xs bg-zinc-700 text-zinc-300">
+                      {TYPE_LABEL[item.commitment_type ?? ''] ?? item.commitment_type}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-center"><StatusBadge status={item.status} /></td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      {residual > 0 && (
+                        <button onClick={() => onPay(item)}
+                          className="px-2 py-1 text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-900/30 hover:bg-emerald-900/50 rounded-lg border border-emerald-800">
+                          Paga
+                        </button>
+                      )}
+                      {paid > 0 && (
+                        <button onClick={() => onReset(item.id)}
+                          className="px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg">
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+                {isOpen && <MovementsRow item={item} colSpan={7} onDeleteTx={onDeleteTx} />}
+              </Fragment>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -324,7 +464,7 @@ export default function StaffClient({
   const totalBudget  = (dipBudget ? Math.abs(dipBudget.amount_cents) : 0) + (colBudget ? Math.abs(colBudget.amount_cents) : 0) + (f24Budget ? Math.abs(f24Budget.amount_cents) : 0)
   const totalActual  = dipActualTotal + colActualTotal + f24ActualCents
   const personCount  = salaryItems.length + extraItems.length + collabItems.length + pivaItems.length
-  const paidCents    = actualItems.reduce((s, i) => s + (i.status === 'paid' ? Math.abs(i.paid_amount_cents ?? i.amount_cents) : i.status === 'partial' ? (i.paid_amount_cents ?? 0) : 0), 0)
+  const paidCents    = actualItems.reduce((s, i) => s + (i.paid_amount_cents ?? 0), 0)
 
   const isAppiae = selectedCompany?.code === 'APPIAE'
 
@@ -344,7 +484,7 @@ export default function StaffClient({
   function openPayModal(item: StaffItem) {
     setPayingItem(item)
     setPayDate(today)
-    setPayAmount((Math.abs(item.amount_cents) / 100).toFixed(2))
+    setPayAmount((residualOf(item) / 100).toFixed(2))
     setPayErr('')
   }
 
@@ -362,7 +502,20 @@ export default function StaffClient({
   }
 
   async function handleReset(id: string) {
-    await resetStaffToPending(id)
+    const res = await resetStaffToPending(id)
+    if ('error' in res) { alert(String(res.error)); return }
+    router.refresh()
+  }
+
+  async function handleDeleteTx(txId: string) {
+    const res = await deleteStaffTransaction(txId)
+    if ('error' in res) { alert(String(res.error)); return }
+    router.refresh()
+  }
+
+  async function handleEditTotal(id: string, totalCents: number) {
+    const res = await updateStaffTotal(id, totalCents)
+    if ('error' in res) { alert(String(res.error)); return }
     router.refresh()
   }
 
@@ -466,7 +619,8 @@ export default function StaffClient({
         <BudgetRow label="Budget previsto" budgetCents={dipBudget ? Math.abs(dipBudget.amount_cents) : 0}
           companyId={companyId} month={selectedMonth} category="dipendenti" actualTotal={dipActualTotal} />
 
-        <ItemsTable items={[...salaryItems, ...extraItems]} onPay={openPayModal} onReset={handleReset} />
+        <ItemsTable items={[...salaryItems, ...extraItems]} onPay={openPayModal} onReset={handleReset}
+          onDeleteTx={handleDeleteTx} onEditTotal={handleEditTotal} />
 
         <div className="flex items-center gap-3 mt-3 flex-wrap">
           <UploadSection label="Distinta netti" fileRef={salRef} disabled={!companyId}
@@ -491,7 +645,8 @@ export default function StaffClient({
           <BudgetRow label="Budget previsto" budgetCents={colBudget ? Math.abs(colBudget.amount_cents) : 0}
             companyId={companyId} month={selectedMonth} category="collaboratori" actualTotal={colActualTotal} />
 
-          <ItemsTable items={[...collabItems, ...pivaItems]} onPay={openPayModal} onReset={handleReset} />
+          <ItemsTable items={[...collabItems, ...pivaItems]} onPay={openPayModal} onReset={handleReset}
+            onDeleteTx={handleDeleteTx} onEditTotal={handleEditTotal} />
 
           <div className="flex items-center gap-3 mt-3 flex-wrap">
             <UploadSection label="Istruttori" fileRef={colRef} disabled={!companyId}
@@ -517,6 +672,7 @@ export default function StaffClient({
           companyId={companyId} month={selectedMonth} category="f24" actualTotal={f24ActualCents} />
 
         {taxItem && !f24Editing ? (
+          <>
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-6">
               <div>
@@ -527,6 +683,18 @@ export default function StaffClient({
                 <p className="text-xs text-zinc-500 mb-0.5">Scadenza</p>
                 <p className="text-sm text-zinc-300">{taxItem.due_date}</p>
               </div>
+              {(taxItem.paid_amount_cents ?? 0) > 0 && (
+                <div>
+                  <p className="text-xs text-zinc-500 mb-0.5">Pagato</p>
+                  <p className="text-sm font-medium text-emerald-400 tabular-nums">{formatEur(taxItem.paid_amount_cents ?? 0)}</p>
+                </div>
+              )}
+              {residualOf(taxItem) > 0 && (taxItem.paid_amount_cents ?? 0) > 0 && (
+                <div>
+                  <p className="text-xs text-zinc-500 mb-0.5">Residuo</p>
+                  <p className="text-sm font-medium text-cyan-400 tabular-nums">{formatEur(residualOf(taxItem))}</p>
+                </div>
+              )}
               <div>
                 <p className="text-xs text-zinc-500 mb-0.5">Stato</p>
                 <StatusBadge status={taxItem.status} />
@@ -541,13 +709,13 @@ export default function StaffClient({
               }} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded-lg">
                 <Pencil className="w-3.5 h-3.5" /> Modifica
               </button>
-              {(taxItem.status === 'pending' || taxItem.status === 'partial') && (
+              {residualOf(taxItem) > 0 && (
                 <button onClick={() => openPayModal(taxItem)}
                   className="px-3 py-1.5 text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-900/30 hover:bg-emerald-900/50 rounded-lg border border-emerald-800">
                   Paga
                 </button>
               )}
-              {(taxItem.status === 'paid' || taxItem.status === 'partial') && (
+              {(taxItem.paid_amount_cents ?? 0) > 0 && (
                 <button onClick={() => handleReset(taxItem.id)}
                   className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg">
                   Reset
@@ -555,6 +723,15 @@ export default function StaffClient({
               )}
             </div>
           </div>
+          {(taxItem.payment_transactions ?? []).length > 0 && (
+            <div className="mt-3 pt-3 border-t border-zinc-800">
+              <p className="text-xs text-zinc-500 mb-1.5">Movimenti</p>
+              <table className="w-full"><tbody>
+                <MovementsRow item={taxItem} colSpan={1} onDeleteTx={handleDeleteTx} />
+              </tbody></table>
+            </div>
+          )}
+          </>
         ) : (
           <div className="space-y-3">
             <div className="flex items-end gap-3 flex-wrap">
@@ -600,12 +777,12 @@ export default function StaffClient({
             <p className="text-sm text-zinc-400 mb-4">{payingItem.supplier_name}</p>
             <div className="bg-zinc-800/50 rounded-lg px-3 py-2 text-sm text-zinc-400 mb-3 space-y-0.5">
               <div>
-                Importo da pagare:{' '}
-                <span className="text-zinc-100 font-medium">{formatEur(Math.abs(payingItem.amount_cents))}</span>
+                Residuo da pagare:{' '}
+                <span className="text-zinc-100 font-medium">{formatEur(residualOf(payingItem))}</span>
               </div>
-              {payingItem.status === 'partial' && (payingItem.paid_amount_cents ?? 0) > 0 && (
+              {(payingItem.paid_amount_cents ?? 0) > 0 && (
                 <div className="text-xs text-zinc-500">
-                  Già pagato in precedenza: {formatEur(payingItem.paid_amount_cents ?? 0)}
+                  Totale {formatEur(Math.abs(payingItem.amount_cents))} · già pagato {formatEur(payingItem.paid_amount_cents ?? 0)}
                 </div>
               )}
             </div>
@@ -622,7 +799,7 @@ export default function StaffClient({
               </div>
               {(() => {
                 const cents = Math.round(parseFloat((payAmount || '0').replace(',', '.')) * 100)
-                const current = Math.abs(payingItem.amount_cents)
+                const current = residualOf(payingItem)
                 if (cents > 0 && cents < current) {
                   return (
                     <div className="bg-cyan-950/40 border border-cyan-800/40 rounded-lg px-3 py-2 text-xs text-cyan-300">

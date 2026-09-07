@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import type { CommitmentType } from '@/lib/types/database'
+import { applyPayment, revertPayments, removeTransaction, setTotalAmount } from '@/lib/payment-apply'
 
 function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40)
@@ -13,51 +14,19 @@ function revalidateAll() {
   revalidatePath('/payments')
   revalidatePath('/treasury')
   revalidatePath('/impegni')
+  revalidatePath('/schedule')
+  revalidatePath('/dashboard')
 }
 
-// ── Existing actions ────────────────────────────────────────────────────────
+// ── Pagamenti ───────────────────────────────────────────────────────────────
 
 export async function markStaffPaid(id: string, paidDate: string, paidAmountCents: number) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
 
-  const { data: original, error: fetchErr } = await supabase
-    .from('payment_schedule')
-    .select('status, amount_cents, paid_amount_cents, flow_type')
-    .eq('id', id)
-    .single()
-  if (fetchErr || !original) return { error: fetchErr?.message ?? 'Riga non trovata' }
-
-  if (paidAmountCents <= 0) return { error: 'Importo non valido' }
-
-  const currentCents = Math.abs(original.amount_cents)
-  const previouslyPaid = original.status === 'partial' ? (original.paid_amount_cents ?? 0) : 0
-
-  if (paidAmountCents >= currentCents) {
-    const totalPaid = previouslyPaid + paidAmountCents
-    const { error } = await supabase
-      .from('payment_schedule')
-      .update({ status: 'paid', paid_date: paidDate, paid_amount_cents: totalPaid })
-      .eq('id', id)
-    if (error) return { error: error.message }
-  } else {
-    const residualCents = currentCents - paidAmountCents
-    const cumulativePaid = previouslyPaid + paidAmountCents
-    const sign = original.flow_type === 'out' ? -1 : 1
-    const { error } = await supabase
-      .from('payment_schedule')
-      .update({
-        status: 'partial',
-        paid_date: paidDate,
-        paid_amount_cents: cumulativePaid,
-        amount_cents: sign * residualCents,
-        amount_in_cents: original.flow_type === 'in' ? residualCents : 0,
-        amount_out_cents: original.flow_type === 'out' ? residualCents : 0,
-      })
-      .eq('id', id)
-    if (error) return { error: error.message }
-  }
+  const res = await applyPayment(supabase, id, paidDate, paidAmountCents)
+  if ('error' in res) return res
 
   revalidateAll()
   return { success: true }
@@ -68,32 +37,32 @@ export async function resetStaffToPending(id: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
 
-  const { data: original, error: fetchErr } = await supabase
-    .from('payment_schedule')
-    .select('status, amount_cents, paid_amount_cents, flow_type')
-    .eq('id', id)
-    .single()
-  if (fetchErr || !original) return { error: fetchErr?.message ?? 'Riga non trovata' }
+  const res = await revertPayments(supabase, id)
+  if ('error' in res) return res
 
-  const update: Record<string, unknown> = {
-    status: 'pending',
-    paid_date: null,
-    paid_amount_cents: null,
-  }
+  revalidateAll()
+  return { success: true }
+}
 
-  if (original.status === 'partial') {
-    const totalCents = Math.abs(original.amount_cents) + (original.paid_amount_cents ?? 0)
-    const sign = original.flow_type === 'out' ? -1 : 1
-    update.amount_cents = sign * totalCents
-    update.amount_in_cents = original.flow_type === 'in' ? totalCents : 0
-    update.amount_out_cents = original.flow_type === 'out' ? totalCents : 0
-  }
+export async function deleteStaffTransaction(transactionId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autenticato' }
 
-  const { error } = await supabase
-    .from('payment_schedule')
-    .update(update)
-    .eq('id', id)
-  if (error) return { error: error.message }
+  const res = await removeTransaction(supabase, transactionId)
+  if ('error' in res) return res
+
+  revalidateAll()
+  return { success: true }
+}
+
+export async function updateStaffTotal(id: string, totalCents: number) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autenticato' }
+
+  const res = await setTotalAmount(supabase, id, totalCents)
+  if ('error' in res) return res
 
   revalidateAll()
   return { success: true }

@@ -2,11 +2,15 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { applyPayment, revertPayments, residualCents } from '@/lib/payment-apply'
 
 function revalidateAll() {
   revalidatePath('/payments')
   revalidatePath('/schedule')
   revalidatePath('/treasury')
+  revalidatePath('/staff')
+  revalidatePath('/impegni')
+  revalidatePath('/dashboard')
 }
 
 export async function markPaid(id: string, paidDate: string, paidAmountCents: number) {
@@ -14,20 +18,9 @@ export async function markPaid(id: string, paidDate: string, paidAmountCents: nu
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
 
-  const { data: original } = await supabase
-    .from('payment_schedule')
-    .select('status, paid_amount_cents')
-    .eq('id', id)
-    .single()
+  const res = await applyPayment(supabase, id, paidDate, paidAmountCents)
+  if ('error' in res) return res
 
-  const previouslyPaid = original?.status === 'partial' ? (original.paid_amount_cents ?? 0) : 0
-  const totalPaid = previouslyPaid + paidAmountCents
-
-  const { error } = await supabase
-    .from('payment_schedule')
-    .update({ status: 'paid', paid_date: paidDate, paid_amount_cents: totalPaid })
-    .eq('id', id)
-  if (error) return { error: error.message }
   revalidateAll()
   return { success: true }
 }
@@ -43,32 +36,16 @@ export async function markPartiallyPaid(
 
   const { data: original, error: fetchErr } = await supabase
     .from('payment_schedule')
-    .select('amount_cents, paid_amount_cents, flow_type')
+    .select('amount_cents, paid_amount_cents')
     .eq('id', id)
     .single()
   if (fetchErr || !original) return { error: fetchErr?.message ?? 'Riga non trovata' }
 
-  const currentCents = Math.abs(original.amount_cents)
-  if (paidAmountCents <= 0) return { error: 'Importo non valido' }
-  if (paidAmountCents >= currentCents) return { error: 'Importo pari o superiore al residuo: usa Paga' }
+  const residual = residualCents(original.amount_cents, original.paid_amount_cents)
+  if (paidAmountCents >= residual) return { error: 'Importo pari o superiore al residuo: usa Paga' }
 
-  const residualCents = currentCents - paidAmountCents
-  const previouslyPaid = original.paid_amount_cents ?? 0
-  const cumulativePaid = previouslyPaid + paidAmountCents
-  const sign = original.flow_type === 'out' ? -1 : 1
-
-  const { error: updateErr } = await supabase
-    .from('payment_schedule')
-    .update({
-      status: 'partial',
-      paid_date: paidDate,
-      paid_amount_cents: cumulativePaid,
-      amount_cents: sign * residualCents,
-      amount_in_cents: original.flow_type === 'in' ? residualCents : 0,
-      amount_out_cents: original.flow_type === 'out' ? residualCents : 0,
-    })
-    .eq('id', id)
-  if (updateErr) return { error: updateErr.message }
+  const res = await applyPayment(supabase, id, paidDate, paidAmountCents)
+  if ('error' in res) return res
 
   revalidateAll()
   return { success: true }
@@ -109,35 +86,9 @@ export async function resetToPending(id: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
 
-  const { data: original, error: fetchErr } = await supabase
-    .from('payment_schedule')
-    .select('status, amount_cents, paid_amount_cents, flow_type')
-    .eq('id', id)
-    .single()
-  if (fetchErr || !original) return { error: fetchErr?.message ?? 'Riga non trovata' }
+  const res = await revertPayments(supabase, id)
+  if ('error' in res) return res
 
-  const update: Record<string, unknown> = {
-    status: 'pending',
-    paid_date: null,
-    paid_amount_cents: null,
-    postponed_to: null,
-    postpone_notes: null,
-  }
-
-  // Per i parziali ripristina l'importo totale (residuo corrente + già pagato)
-  if (original.status === 'partial') {
-    const totalCents = Math.abs(original.amount_cents) + (original.paid_amount_cents ?? 0)
-    const sign = original.flow_type === 'out' ? -1 : 1
-    update.amount_cents = sign * totalCents
-    update.amount_in_cents = original.flow_type === 'in' ? totalCents : 0
-    update.amount_out_cents = original.flow_type === 'out' ? totalCents : 0
-  }
-
-  const { error } = await supabase
-    .from('payment_schedule')
-    .update(update)
-    .eq('id', id)
-  if (error) return { error: error.message }
   revalidateAll()
   return { success: true }
 }

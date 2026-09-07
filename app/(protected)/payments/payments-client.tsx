@@ -130,6 +130,7 @@ function PaymentRow({
   const { status } = payment
   const company = companies.find(c => c.id === payment.company_id)
   const amountCents = Math.abs(payment.amount_cents)
+  const residual = Math.max(0, amountCents - (payment.paid_amount_cents ?? 0))
 
   const canSchedule = status === 'pending' || status === 'postponed' || status === 'partial'
   const canPay = status === 'pending' || status === 'scheduled' || status === 'postponed' || status === 'partial'
@@ -158,6 +159,9 @@ function PaymentRow({
       </td>
       <td className="px-3 py-2.5 text-sm text-zinc-100 text-right font-medium whitespace-nowrap">
         {formatEur(amountCents)}
+        {payment.status === 'partial' && (
+          <div className="text-xs font-normal text-cyan-400">residuo {formatEur(residual)}</div>
+        )}
       </td>
       <td className="px-3 py-2.5">
         <StatusBadge payment={payment} />
@@ -303,8 +307,11 @@ function ModalMarkPaid({
   onClose: () => void
 }) {
   const router = useRouter()
+  const totalCents = Math.abs(payment.amount_cents)
+  const alreadyPaid = payment.paid_amount_cents ?? 0
+  const residual = Math.max(0, totalCents - alreadyPaid)
   const [date, setDate] = useState(today)
-  const [amount, setAmount] = useState(String(Math.abs(payment.amount_cents) / 100).replace('.', ','))
+  const [amount, setAmount] = useState(String(residual / 100).replace('.', ','))
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
 
@@ -322,6 +329,14 @@ function ModalMarkPaid({
   return (
     <ModalWrapper title="Segna pagato" onClose={onClose}>
       <div className="space-y-4">
+        <div className="bg-zinc-800/50 rounded-lg px-3 py-2 text-sm text-zinc-400 space-y-0.5">
+          <div>Totale: <span className="text-zinc-100 font-medium">{formatEur(totalCents)}</span></div>
+          {alreadyPaid > 0 && (
+            <div className="text-xs text-zinc-500">
+              Già pagato {formatEur(alreadyPaid)} · residuo {formatEur(residual)}
+            </div>
+          )}
+        </div>
         <Field label="Data pagamento">
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
         </Field>
@@ -356,8 +371,9 @@ function ModalPartialPay({
   onClose: () => void
 }) {
   const router = useRouter()
-  const currentCents = Math.abs(payment.amount_cents)
+  const totalCents = Math.abs(payment.amount_cents)
   const alreadyPaid = payment.paid_amount_cents ?? 0
+  const currentCents = Math.max(0, totalCents - alreadyPaid)
   const [date, setDate] = useState(today)
   const [amount, setAmount] = useState('')
   const [isPending, startTransition] = useTransition()
@@ -382,12 +398,12 @@ function ModalPartialPay({
       <div className="space-y-4">
         <div className="bg-zinc-800/50 rounded-lg px-3 py-2 text-sm text-zinc-400 space-y-0.5">
           <div>
-            Importo da pagare:{' '}
+            Residuo da pagare:{' '}
             <span className="text-zinc-100 font-medium">{formatEur(currentCents)}</span>
           </div>
           {alreadyPaid > 0 && (
             <div className="text-xs text-zinc-500">
-              Già pagato in precedenza: {formatEur(alreadyPaid)}
+              Totale {formatEur(totalCents)} · già pagato {formatEur(alreadyPaid)}
             </div>
           )}
         </div>

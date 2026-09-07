@@ -75,9 +75,9 @@ export default async function ForecastPage({
       .in('month', monthNums),
     supabase
       .from('payment_schedule')
-      .select('company_id, due_date, amount_cents, is_intercompany')
+      .select('company_id, due_date, amount_cents, paid_amount_cents, is_intercompany')
       .eq('flow_type', 'out')
-      .in('status', ['pending', 'scheduled'])
+      .in('status', ['pending', 'scheduled', 'partial'])
       .gte('due_date', start6)
       .lte('due_date', end6),
   ])
@@ -104,7 +104,7 @@ export default async function ForecastPage({
         if (view === 'consolidated' && p.is_intercompany) return false
         return p.due_date >= start && p.due_date <= end
       })
-      .reduce((s, p) => s + Math.abs(p.amount_cents ?? 0), 0)
+      .reduce((s, p) => s + Math.max(0, Math.abs(p.amount_cents ?? 0) - (p.paid_amount_cents ?? 0)), 0)
 
     const netFlow = revenueForecasted - outflowScheduled
     cumBalance += netFlow

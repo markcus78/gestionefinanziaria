@@ -183,6 +183,17 @@ export type PaymentScheduleItem = {
   is_repayment_plan: boolean
 }
 
+export type PaymentTransaction = {
+  id: string
+  payment_schedule_id: string
+  paid_date: string | null
+  amount_cents: number
+  note: string | null
+  is_reconstructed: boolean
+  created_at: string
+  created_by: string | null
+}
+
 export type ExpenseForecast = {
   id: string
   company_id: string

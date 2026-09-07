@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { applyPayment } from '@/lib/payment-apply'
 
 export type CommitmentInput = {
   company_id: string
@@ -111,15 +112,14 @@ export async function markCommitmentPaid(id: string, paidDate: string, paidAmoun
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
 
-  const { error } = await supabase
-    .from('payment_schedule')
-    .update({ status: 'paid', paid_date: paidDate, paid_amount_cents: paidAmountCents })
-    .eq('id', id)
-    .eq('entry_type', 'commitment')
+  const res = await applyPayment(supabase, id, paidDate, paidAmountCents)
+  if ('error' in res) return { error: res.error }
 
-  if (error) return { error: error.message }
   revalidatePath('/impegni')
   revalidatePath('/payments')
+  revalidatePath('/staff')
+  revalidatePath('/schedule')
+  revalidatePath('/treasury')
   return { ok: true }
 }
 

@@ -92,7 +92,7 @@ export default async function SchedulePage({
     // Aggregate pending out flows per supplier
     let aggQ = supabase
       .from('payment_schedule')
-      .select('supplier_id, due_date, amount_cents')
+      .select('supplier_id, due_date, amount_cents, paid_amount_cents')
       .eq('flow_type', 'out')
       .eq('entry_type', 'accounting')
       .not('status', 'in', '("paid","cancelled")')
@@ -110,7 +110,8 @@ export default async function SchedulePage({
       if (!agg[row.supplier_id]) {
         agg[row.supplier_id] = { overdueCents: 0, due7dCents: 0, due30dCents: 0, due90dCents: 0 }
       }
-      const amount = Math.abs(row.amount_cents as number)
+      // residuo: le righe 'partial' hanno amount_cents pari al totale
+      const amount = Math.max(0, Math.abs(row.amount_cents as number) - ((row.paid_amount_cents as number | null) ?? 0))
       const a = agg[row.supplier_id]
       if ((row.due_date as string) < today)       a.overdueCents += amount
       else if ((row.due_date as string) <= d7)    a.due7dCents   += amount
@@ -248,6 +249,11 @@ export default async function SchedulePage({
                     </td>
                     <td className={`px-3 py-2 text-right font-medium tabular-nums ${item.flow_type === 'out' ? 'text-red-400' : 'text-emerald-400'}`}>
                       {item.flow_type === 'out' ? '-' : '+'}{formatEur(Math.abs(item.amount_cents))}
+                      {item.status === 'partial' && (
+                        <div className="text-[10px] font-normal text-cyan-400">
+                          residuo {formatEur(Math.abs(item.amount_cents) - (item.paid_amount_cents ?? 0))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <StatusBadge status={item.status} />

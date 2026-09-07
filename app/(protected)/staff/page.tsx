@@ -27,7 +27,7 @@ export default async function StaffPage({
       .order('code'),
     supabase
       .from('payment_schedule')
-      .select('id, company_id, supplier_name, account_description, due_date, amount_cents, status, commitment_type, paid_amount_cents, paid_date, reference_month')
+      .select('id, company_id, supplier_name, account_description, due_date, amount_cents, status, commitment_type, paid_amount_cents, paid_date, reference_month, payment_transactions(id, paid_date, amount_cents, note, is_reconstructed)')
       .in('commitment_type', ['salary_item', 'collab_item', 'tax_item', 'extra_item', 'piva_item'])
       .eq('reference_month', selectedMonth)
       .neq('status', 'cancelled')

@@ -12,6 +12,7 @@ type Row = {
   supplier_name: string | null
   account_description: string | null
   amount_cents: number
+  paid_amount_cents: number | null
   status: PaymentStatus
   document_type: string | null
   document_number: string | null
@@ -174,11 +175,11 @@ function PaidModal({
   onClose: () => void
   onConfirm: (date: string, cents: number) => void
 }) {
+  const alreadyPaid = item.paid_amount_cents ?? 0
+  const residualCents = Math.max(0, Math.abs(item.amount_cents) - alreadyPaid)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
-  const [amount, setAmount] = useState(
-    (Math.abs(item.amount_cents) / 100).toFixed(2)
-  )
-  const displayAmount = formatEur(Math.abs(item.amount_cents))
+  const [amount, setAmount] = useState((residualCents / 100).toFixed(2))
+  const displayAmount = formatEur(residualCents)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -191,7 +192,10 @@ function PaidModal({
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
         <h3 className="text-sm font-semibold text-zinc-100 mb-1">Segna come pagato</h3>
-        <p className="text-xs text-zinc-400 mb-4 truncate">{item.supplier_name} — {displayAmount}</p>
+        <p className="text-xs text-zinc-400 mb-4 truncate">
+          {item.supplier_name} — {displayAmount}
+          {alreadyPaid > 0 && <> (residuo su {formatEur(Math.abs(item.amount_cents))}, già pagato {formatEur(alreadyPaid)})</>}
+        </p>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="block text-xs text-zinc-400 mb-1">Data pagamento</label>
@@ -333,6 +337,11 @@ export default function DashboardTable({ rows, today, companyMap, windowTotal }:
               </td>
               <td className="px-4 py-2.5 text-right font-medium tabular-nums text-red-400">
                 -{formatEur(Math.abs(item.amount_cents))}
+                {item.status === 'partial' && (
+                  <div className="text-[10px] font-normal text-cyan-400">
+                    residuo {formatEur(Math.abs(item.amount_cents) - (item.paid_amount_cents ?? 0))}
+                  </div>
+                )}
               </td>
               <td className="px-4 py-2.5">
                 <StatusBadge status={item.status} />

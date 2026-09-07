@@ -18,7 +18,7 @@ export default async function DashboardPage() {
     supabase.from('companies').select('id, code, name').eq('is_active', true).order('code'),
     supabase
       .from('payment_schedule')
-      .select('id, company_id, supplier_name, account_description, amount_cents, status, priority_score, priority_override, document_type, document_number, due_date')
+      .select('id, company_id, supplier_name, account_description, amount_cents, paid_amount_cents, status, priority_score, priority_override, document_type, document_number, due_date')
       .gte('due_date', dateFrom)
       .lte('due_date', dateTo)
       .eq('entry_type', 'accounting')
@@ -27,7 +27,7 @@ export default async function DashboardPage() {
       .order('due_date', { ascending: true }),
     supabase
       .from('payment_schedule')
-      .select('id, amount_cents')
+      .select('id, amount_cents, paid_amount_cents')
       .eq('entry_type', 'accounting')
       .eq('flow_type', 'out')
       .lt('due_date', today)
@@ -39,8 +39,11 @@ export default async function DashboardPage() {
   const overdueItems = overdueResult.data ?? []
 
   const companyMap = Object.fromEntries(companies.map(c => [c.id, c.code]))
-  const windowTotal = windowPayments.reduce((s, r) => s + Math.abs(r.amount_cents as number), 0)
-  const overdueTotal = overdueItems.reduce((s, r) => s + Math.abs(r.amount_cents as number), 0)
+  // I totali sono sul residuo: per le righe 'partial' amount_cents è l'importo pieno
+  const residual = (r: { amount_cents: unknown; paid_amount_cents?: unknown }) =>
+    Math.max(0, Math.abs(r.amount_cents as number) - ((r.paid_amount_cents as number | null) ?? 0))
+  const windowTotal = windowPayments.reduce((s, r) => s + residual(r), 0)
+  const overdueTotal = overdueItems.reduce((s, r) => s + residual(r), 0)
 
   const todayFormatted = new Date(today + 'T00:00:00').toLocaleDateString('it-IT', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
@@ -91,6 +94,7 @@ export default async function DashboardPage() {
               supplier_name: item.supplier_name as string | null,
               account_description: item.account_description as string | null,
               amount_cents: item.amount_cents as number,
+              paid_amount_cents: (item.paid_amount_cents as number | null) ?? null,
               status: item.status as 'pending' | 'scheduled' | 'paid' | 'partial' | 'postponed' | 'disputed' | 'cancelled',
               document_type: item.document_type as string | null,
               document_number: item.document_number as string | null,

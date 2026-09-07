@@ -123,6 +123,15 @@ supabase/setup.sql     ← schema DB completo
 - `monthly_revenue_forecasts`: `UNIQUE(company_id, channel_id, year, month)` — i NULL non sono considerati uguali in PostgreSQL, quindi upsert con `channel_id = NULL` richiede check-then-update manuale.
 - Trigger `handle_new_user` su `auth.users`: **RIMOSSO**. I profili in `user_profiles` vanno inseriti manualmente.
 
+### Pagamenti — invariante da non violare
+
+- `payment_schedule.amount_cents` è **sempre l'importo totale originale**. Nessuna azione di pagamento lo modifica.
+- `paid_amount_cents` = `SUM(payment_transactions.amount_cents)`; **residuo** = `ABS(amount_cents) - COALESCE(paid_amount_cents, 0)`.
+- Ogni pagamento (acconto o saldo) è una riga in `payment_transactions`, con la sua data. `paid_date` sulla riga padre è la data del movimento più recente.
+- **Tutte** le sezioni devono passare da `lib/payment-apply.ts` (`applyPayment`, `revertPayments`, `removeTransaction`, `setTotalAmount`). Mai scrivere `status`/`paid_amount_cents` a mano: cinque punti che lo facevano avevano finito per sovrascrivere il totale con l'ultima rata.
+- Ovunque serva "quanto resta da pagare" (tesoreria, previsione, scadenzario, dashboard) usare il residuo, non `ABS(amount_cents)`, e includere lo stato `partial` nei filtri.
+- `dedup_key` è UNIQUE e contiene `amount_cents`: cambiare l'importo di una riga può collidere (gestito in `setTotalAmount`).
+
 ---
 
 ## Utenti e ruoli

@@ -32,10 +32,11 @@ export default function RowActions({ item }: Props) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
-  const canMarkPaid = ['pending', 'scheduled', 'postponed'].includes(item.status)
-  const canPostpone = ['pending', 'scheduled'].includes(item.status)
-  const canSchedule = ['pending', 'postponed'].includes(item.status)
-  const canReset    = ['paid', 'scheduled', 'postponed'].includes(item.status)
+  const canMarkPaid = ['pending', 'scheduled', 'postponed', 'partial'].includes(item.status)
+  const canPostpone = ['pending', 'scheduled', 'partial'].includes(item.status)
+  const canSchedule = ['pending', 'postponed', 'partial'].includes(item.status)
+  const canReset    = ['paid', 'scheduled', 'postponed', 'partial'].includes(item.status)
+  const residual    = Math.max(0, Math.abs(item.amount_cents) - (item.paid_amount_cents ?? 0))
 
   function run(fn: () => Promise<{ error?: string; success?: boolean }>) {
     setError(null)
@@ -122,6 +123,7 @@ export default function RowActions({ item }: Props) {
       {showPaid && (
         <PaidModal
           item={item}
+          residualCents={residual}
           onClose={() => setShowPaid(false)}
           onConfirm={(date, cents) => {
             setShowPaid(false)
@@ -132,10 +134,11 @@ export default function RowActions({ item }: Props) {
       {showPartial && (
         <PartialPaidModal
           item={item}
+          residualCents={residual}
           onClose={() => setShowPartial(false)}
-          onConfirm={(date, cents, residualDate) => {
+          onConfirm={(date, cents) => {
             setShowPartial(false)
-            run(() => markPartiallyPaid(item.id, date, cents, residualDate))
+            run(() => markPartiallyPaid(item.id, date, cents))
           }}
         />
       )}
@@ -154,17 +157,17 @@ export default function RowActions({ item }: Props) {
 }
 
 function PaidModal({
-  item, onClose, onConfirm,
+  item, residualCents, onClose, onConfirm,
 }: {
   item: PaymentScheduleItem
+  residualCents: number
   onClose: () => void
   onConfirm: (date: string, cents: number) => void
 }) {
+  const alreadyPaid = item.paid_amount_cents ?? 0
   const [date, setDate] = useState(todayISO())
-  const [amount, setAmount] = useState(
-    (Math.abs(item.amount_cents) / 100).toFixed(2)
-  )
-  const displayAmount = formatEur(Math.abs(item.amount_cents))
+  const [amount, setAmount] = useState((residualCents / 100).toFixed(2))
+  const displayAmount = formatEur(residualCents)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -177,7 +180,10 @@ function PaidModal({
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
         <h3 className="text-sm font-semibold text-zinc-100 mb-1">Segna come pagato</h3>
-        <p className="text-xs text-zinc-400 mb-4 truncate">{item.supplier_name} — {displayAmount}</p>
+        <p className="text-xs text-zinc-400 mb-4 truncate">
+          {item.supplier_name} — {displayAmount}
+          {alreadyPaid > 0 && <> (residuo su {formatEur(Math.abs(item.amount_cents))}, già pagato {formatEur(alreadyPaid)})</>}
+        </p>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="block text-xs text-zinc-400 mb-1">Data pagamento</label>
@@ -223,28 +229,28 @@ function PaidModal({
 }
 
 function PartialPaidModal({
-  item, onClose, onConfirm,
+  item, residualCents: currentResidual, onClose, onConfirm,
 }: {
   item: PaymentScheduleItem
+  residualCents: number
   onClose: () => void
-  onConfirm: (date: string, cents: number, residualDate: string) => void
+  onConfirm: (date: string, cents: number) => void
 }) {
   const totalCents = Math.abs(item.amount_cents)
+  const alreadyPaid = item.paid_amount_cents ?? 0
   const [date, setDate] = useState(todayISO())
   const [amount, setAmount] = useState('')
-  const [residualDate, setResidualDate] = useState('')
   const [err, setErr] = useState('')
 
   const paidCents = Math.round(parseFloat(amount || '0') * 100)
-  const residualCents = totalCents - paidCents
+  const newResidual = currentResidual - paidCents
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setErr('')
     if (isNaN(paidCents) || paidCents <= 0) return setErr('Inserisci un importo valido')
-    if (paidCents >= totalCents) return setErr('Per il saldo totale usa "Segna pagato"')
-    if (!residualDate) return setErr('Inserisci la data per il saldo residuo')
-    onConfirm(date, paidCents, residualDate)
+    if (paidCents >= currentResidual) return setErr('Per il saldo totale usa "Segna pagato"')
+    onConfirm(date, paidCents)
   }
 
   return (
@@ -253,6 +259,7 @@ function PartialPaidModal({
         <h3 className="text-sm font-semibold text-zinc-100 mb-1">Pagamento parziale (acconto)</h3>
         <p className="text-xs text-zinc-400 mb-4 truncate">
           {item.supplier_name} — totale {formatEur(totalCents)}
+          {alreadyPaid > 0 && <> · già pagato {formatEur(alreadyPaid)} · residuo {formatEur(currentResidual)}</>}
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
@@ -271,34 +278,23 @@ function PartialPaidModal({
               type="number"
               step="0.01"
               min="0.01"
-              max={(totalCents / 100 - 0.01).toFixed(2)}
+              max={(currentResidual / 100 - 0.01).toFixed(2)}
               value={amount}
               onChange={e => setAmount(e.target.value)}
-              placeholder={`Max ${formatEur(totalCents - 1)}`}
+              placeholder={`Max ${formatEur(currentResidual - 1)}`}
               required
               className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
 
           {/* Riepilogo residuo */}
-          {paidCents > 0 && paidCents < totalCents && (
+          {paidCents > 0 && paidCents < currentResidual && (
             <div className="px-3 py-2 bg-orange-500/10 border border-orange-500/20 rounded-lg">
               <p className="text-xs text-orange-300">
-                Residuo da saldare: <span className="font-semibold tabular-nums">{formatEur(residualCents)}</span>
+                Residuo da saldare: <span className="font-semibold tabular-nums">{formatEur(newResidual)}</span>
               </p>
             </div>
           )}
-
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">Nuova scadenza per il saldo</label>
-            <input
-              type="date"
-              value={residualDate}
-              onChange={e => setResidualDate(e.target.value)}
-              required
-              className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
 
           {err && <p className="text-xs text-red-400">{err}</p>}
 
