@@ -354,7 +354,7 @@ function CommitmentsSection({
   function openPaidModal(item: PaymentScheduleItem) {
     setPaidTarget(item)
     setPaidDate(today())
-    setPaidAmount((Math.abs(item.amount_cents) / 100).toFixed(2))
+    setPaidAmount((Math.max(0, Math.abs(item.amount_cents) - (item.paid_amount_cents ?? 0)) / 100).toFixed(2))
   }
 
   async function handleMarkPaid(e: React.FormEvent) {
@@ -829,7 +829,12 @@ function CommitmentsSection({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPaidTarget(null)}>
           <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-zinc-100 mb-1">Segna come pagato</h3>
-            <p className="text-xs text-zinc-400 mb-4 truncate">{paidTarget.supplier_name} — {formatEur(Math.abs(paidTarget.amount_cents))}</p>
+            <p className="text-xs text-zinc-400 mb-4 truncate">
+              {paidTarget.supplier_name} — {formatEur(Math.abs(paidTarget.amount_cents))}
+              {(paidTarget.paid_amount_cents ?? 0) > 0 && (
+                <> · già pagato {formatEur(paidTarget.paid_amount_cents ?? 0)} · residuo {formatEur(Math.max(0, Math.abs(paidTarget.amount_cents) - (paidTarget.paid_amount_cents ?? 0)))}</>
+              )}
+            </p>
             <form onSubmit={handleMarkPaid} className="space-y-3">
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Data pagamento</label>
@@ -1308,7 +1313,7 @@ function ReconciliationSection({
   function openPaidModal(item: PaymentScheduleItem) {
     setPaidTarget(item)
     setPaidDate(new Date().toISOString().split('T')[0])
-    setPaidAmount((Math.abs(item.amount_cents) / 100).toFixed(2))
+    setPaidAmount((Math.max(0, Math.abs(item.amount_cents) - (item.paid_amount_cents ?? 0)) / 100).toFixed(2))
   }
 
   async function handleMarkPaid(e: React.FormEvent) {
@@ -1460,7 +1465,12 @@ function ReconciliationSection({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPaidTarget(null)}>
           <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-zinc-100 mb-1">Segna come pagato</h3>
-            <p className="text-xs text-zinc-400 mb-4 truncate">{paidTarget.supplier_name} — {formatEur(Math.abs(paidTarget.amount_cents))}</p>
+            <p className="text-xs text-zinc-400 mb-4 truncate">
+              {paidTarget.supplier_name} — {formatEur(Math.abs(paidTarget.amount_cents))}
+              {(paidTarget.paid_amount_cents ?? 0) > 0 && (
+                <> · già pagato {formatEur(paidTarget.paid_amount_cents ?? 0)} · residuo {formatEur(Math.max(0, Math.abs(paidTarget.amount_cents) - (paidTarget.paid_amount_cents ?? 0)))}</>
+              )}
+            </p>
             <form onSubmit={handleMarkPaid} className="space-y-3">
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Data pagamento</label>

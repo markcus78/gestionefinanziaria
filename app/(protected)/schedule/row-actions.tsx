@@ -169,6 +169,8 @@ function PaidModal({
   const [amount, setAmount] = useState((residualCents / 100).toFixed(2))
   const displayAmount = formatEur(residualCents)
 
+  const typedCents = Math.round(parseFloat(amount || '0') * 100)
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const cents = Math.round(parseFloat(amount) * 100)
@@ -207,6 +209,11 @@ function PaidModal({
               className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
+          {typedCents > 0 && typedCents < residualCents && (
+            <p className="text-xs text-cyan-400">
+              Pagamento parziale — residuo dopo: {formatEur(residualCents - typedCents)}
+            </p>
+          )}
           <div className="flex gap-2 pt-1">
             <button
               type="submit"
