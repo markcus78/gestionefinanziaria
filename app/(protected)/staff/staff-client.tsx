@@ -85,6 +85,20 @@ function DeltaBadge({ budget, actual }: { budget: number; actual: number }) {
   )
 }
 
+function CategoryTotals({ items }: { items: StaffItem[] }) {
+  if (!items.length) return null
+  const totale   = items.reduce((s, i) => s + Math.abs(i.amount_cents), 0)
+  const pagato   = items.reduce((s, i) => s + (i.paid_amount_cents ?? 0), 0)
+  const residuo  = items.reduce((s, i) => s + residualOf(i), 0)
+  return (
+    <div className="flex items-center gap-4 text-xs tabular-nums">
+      <span className="text-zinc-500">Totale <span className="text-red-400 font-medium">{formatEur(totale)}</span></span>
+      <span className="text-zinc-500">Pagato <span className="text-emerald-400 font-medium">{formatEur(pagato)}</span></span>
+      <span className="text-zinc-500">Residuo <span className={`font-medium ${residuo > 0 ? 'text-cyan-400' : 'text-zinc-600'}`}>{formatEur(residuo)}</span></span>
+    </div>
+  )
+}
+
 // ── TYPE LABELS ─────────────────────────────────────────────────────────────
 
 const TYPE_LABEL: Record<string, string> = {
@@ -465,6 +479,7 @@ export default function StaffClient({
   const totalActual  = dipActualTotal + colActualTotal + f24ActualCents
   const personCount  = salaryItems.length + extraItems.length + collabItems.length + pivaItems.length
   const paidCents    = actualItems.reduce((s, i) => s + (i.paid_amount_cents ?? 0), 0)
+  const residualTotal = actualItems.reduce((s, i) => s + residualOf(i), 0)
 
   const isAppiae = selectedCompany?.code === 'APPIAE'
 
@@ -585,7 +600,7 @@ export default function StaffClient({
       </div>
 
       {/* Stats bar */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-5 gap-3">
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
           <p className="text-xs text-zinc-500 mb-1">Persone</p>
           <p className="text-2xl font-semibold text-zinc-100">{personCount}</p>
@@ -605,15 +620,19 @@ export default function StaffClient({
           <p className="text-xs text-zinc-500 mb-1">Pagato</p>
           <p className="text-xl font-semibold text-emerald-400 tabular-nums">{formatEur(paidCents)}</p>
         </div>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+          <p className="text-xs text-zinc-500 mb-1">Residuo da pagare</p>
+          <p className={`text-xl font-semibold tabular-nums ${residualTotal > 0 ? 'text-cyan-400' : 'text-zinc-600'}`}>
+            {formatEur(residualTotal)}
+          </p>
+        </div>
       </div>
 
       {/* ── CARD DIPENDENTI ──────────────────────────────────────────────── */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-zinc-200">Dipendenti</h3>
-          {dipActualTotal > 0 && (
-            <span className="text-sm font-medium text-red-400 tabular-nums">{formatEur(dipActualTotal)}</span>
-          )}
+          <CategoryTotals items={[...salaryItems, ...extraItems]} />
         </div>
 
         <BudgetRow label="Budget previsto" budgetCents={dipBudget ? Math.abs(dipBudget.amount_cents) : 0}
@@ -637,9 +656,7 @@ export default function StaffClient({
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-zinc-200">Collaboratori / Istruttori</h3>
-            {colActualTotal > 0 && (
-              <span className="text-sm font-medium text-red-400 tabular-nums">{formatEur(colActualTotal)}</span>
-            )}
+            <CategoryTotals items={[...collabItems, ...pivaItems]} />
           </div>
 
           <BudgetRow label="Budget previsto" budgetCents={colBudget ? Math.abs(colBudget.amount_cents) : 0}
@@ -663,9 +680,7 @@ export default function StaffClient({
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-zinc-200">F24</h3>
-          {f24ActualCents > 0 && (
-            <span className="text-sm font-medium text-red-400 tabular-nums">{formatEur(f24ActualCents)}</span>
-          )}
+          <CategoryTotals items={taxItem ? [taxItem] : []} />
         </div>
 
         <BudgetRow label="Budget previsto" budgetCents={f24Budget ? Math.abs(f24Budget.amount_cents) : 0}

@@ -5,6 +5,14 @@ export type SalaryItem = {
   amountCents: number
 }
 
+/**
+ * Righe di riepilogo dell'Excel ("TOTALE", "TOT.", "TOTALE GENERALE"…): non sono persone.
+ * Senza questo filtro finivano importate come un dipendente in più, gonfiando i totali.
+ */
+function isSummaryRow(name: string): boolean {
+  return /^(tot\.?|totale|totali|somma|complessivo)(\s+[\w.]+)*$/i.test(name.trim())
+}
+
 export function parseSalaryFile(buffer: ArrayBuffer): SalaryItem[] {
   const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' })
   const sheetName = workbook.SheetNames[0]
@@ -71,7 +79,7 @@ export function parseSalaryFile(buffer: ArrayBuffer): SalaryItem[] {
       ? rawAmount
       : parseFloat(String(rawAmount ?? '').replace(',', '.'))
 
-    if (!name || isNaN(amount) || amount <= 0) continue
+    if (!name || isSummaryRow(name) || isNaN(amount) || amount <= 0) continue
     items.push({ name, amountCents: Math.round(amount * 100) })
   }
 
@@ -126,7 +134,7 @@ function parseCollaboratorSheet(buffer: ArrayBuffer, amountKeyword: string): Sal
     const amount = typeof rawAmount === 'number'
       ? rawAmount
       : parseFloat(String(rawAmount ?? '').replace(/\./g, '').replace(',', '.'))
-    if (!name || isNaN(amount) || amount <= 0) continue
+    if (!name || isSummaryRow(name) || isNaN(amount) || amount <= 0) continue
     items.push({ name, amountCents: Math.round(amount * 100) })
   }
   return items.sort((a, b) => a.name.localeCompare(b.name, 'it'))
