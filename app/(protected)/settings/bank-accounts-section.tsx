@@ -53,6 +53,21 @@ function EditBalanceForm({ account }: { account: BankAccount }) {
         defaultValue={(account.current_balance_cents / 100).toFixed(2)}
         className="w-28 px-2 py-1 text-xs bg-zinc-800 border border-zinc-600 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
       />
+      <input
+        name="balance_date"
+        type="date"
+        defaultValue={account.balance_date ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome' }).format(new Date())}
+        className="px-2 py-1 text-xs bg-zinc-800 border border-zinc-600 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+      />
+      <input
+        name="credit_line"
+        type="number"
+        step="100"
+        min="0"
+        title="Fido"
+        defaultValue={((account.credit_line_cents ?? 0) / 100).toFixed(0)}
+        className="w-24 px-2 py-1 text-xs bg-zinc-800 border border-zinc-600 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+      />
       <button type="submit" disabled={isPending} className="text-emerald-400 hover:text-emerald-300">
         <Check className="w-3.5 h-3.5" />
       </button>
@@ -214,7 +229,8 @@ export function BankAccountsSection({
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-400 uppercase tracking-wide">Nome</th>
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-400 uppercase tracking-wide">IBAN</th>
                   <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-400 uppercase tracking-wide">Saldo</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-400 uppercase tracking-wide">Aggiornato</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-400 uppercase tracking-wide">Saldo al</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-400 uppercase tracking-wide">Fido</th>
                   <th className="px-4 py-2.5"></th>
                 </tr>
               </thead>
@@ -240,9 +256,12 @@ export function BankAccountsSection({
                       {formatCents(account.current_balance_cents)}
                     </td>
                     <td className="px-4 py-3 text-zinc-500 text-xs">
-                      {account.balance_updated_at
-                        ? new Date(account.balance_updated_at).toLocaleDateString('it-IT')
+                      {account.balance_date
+                        ? `${account.balance_date.slice(8, 10)}/${account.balance_date.slice(5, 7)}/${account.balance_date.slice(0, 4)}`
                         : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right text-zinc-400 text-xs">
+                      {account.credit_line_cents ? formatCents(account.credit_line_cents) : '—'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3 justify-end">

@@ -5,6 +5,8 @@ export type Company = {
   legal_name: string | null
   is_active: boolean
   minimum_cash_threshold_cents: number
+  treasury_block: 'APPIAE' | 'HANGAR' | 'WT_ARIES' | null
+  backlog_before: string | null
   created_at: string
 }
 
@@ -26,6 +28,8 @@ export type BankAccount = {
   is_active: boolean
   current_balance_cents: number
   balance_updated_at: string | null
+  balance_date: string | null
+  credit_line_cents: number
   created_at: string
 }
 
@@ -258,4 +262,20 @@ export type Report = {
   is_read: boolean
   status: ReportStatus
   notes: string | null
+}
+
+export type TreasuryEstimate = {
+  id: string
+  company_id: string
+  label: string
+  kind: 'incasso' | 'muro' | 'automatico' | 'fornitori'
+  category: string
+  monthly_cents: number
+  pct_d1: number
+  pct_d2: number
+  pct_d3: number
+  replaced_by: string[]
+  active: boolean
+  notes: string | null
+  updated_at: string
 }

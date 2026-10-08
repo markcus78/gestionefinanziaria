@@ -7,6 +7,8 @@ import { ChannelsSection } from './channels-section'
 import { ThresholdsSection } from './thresholds-section'
 import { UsersSection } from './users-section'
 import { CollectionPatternsSection } from './collection-patterns-section'
+import { TreasurySection } from './treasury-section'
+import type { TreasuryEstimate } from '@/lib/types/database'
 
 export default async function SettingsPage({
   searchParams,
@@ -34,6 +36,8 @@ export default async function SettingsPage({
   let companyCashChannels = null
   let users = null
   let collectionPatterns = null
+  let estimates: TreasuryEstimate[] = []
+  let groupThresholdCents = 500000
 
   if (tab === 'banche') {
     const { data } = await supabase
@@ -56,6 +60,15 @@ export default async function SettingsPage({
     collectionPatterns = data
   }
 
+  if (tab === 'tesoreria') {
+    const [{ data: est }, { data: ts }] = await Promise.all([
+      supabase.from('treasury_estimates').select('*').order('kind').order('label'),
+      supabase.from('treasury_settings').select('group_threshold_cents').maybeSingle(),
+    ])
+    estimates = (est ?? []) as TreasuryEstimate[]
+    groupThresholdCents = ts?.group_threshold_cents ?? 500000
+  }
+
   if (tab === 'utenti') {
     if (!isStrategic) redirect('/settings?tab=banche')
     const { data } = await supabase.from('user_profiles').select('*').order('role')
@@ -76,6 +89,14 @@ export default async function SettingsPage({
           <BankAccountsSection
             companies={companies ?? []}
             bankAccounts={bankAccounts ?? []}
+          />
+        )}
+
+        {tab === 'tesoreria' && (
+          <TreasurySection
+            companies={companies ?? []}
+            estimates={estimates}
+            groupThresholdCents={groupThresholdCents}
           />
         )}
 

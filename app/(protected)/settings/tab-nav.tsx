@@ -4,6 +4,7 @@ import Link from 'next/link'
 
 const tabs = [
   { id: 'banche', label: 'Conti Bancari' },
+  { id: 'tesoreria', label: 'Tesoreria' },
   { id: 'canali', label: 'Canali Incasso' },
   { id: 'soglie', label: 'Soglie Alert' },
   { id: 'pattern', label: 'Pattern Incassi' },

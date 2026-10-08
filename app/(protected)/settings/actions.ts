@@ -20,15 +20,19 @@ export async function addBankAccount(_: unknown, formData: FormData) {
 
 export async function updateBankBalance(_: unknown, formData: FormData) {
   const supabase = await createClient()
+  const balanceDate = formData.get('balance_date') as string
   const { error } = await supabase
     .from('bank_accounts')
     .update({
       current_balance_cents: Math.round(parseFloat(formData.get('balance') as string) * 100),
       balance_updated_at: new Date().toISOString(),
+      balance_date: /^\d{4}-\d{2}-\d{2}$/.test(balanceDate) ? balanceDate : null,
+      credit_line_cents: Math.max(0, Math.round(parseFloat((formData.get('credit_line') as string) || '0') * 100)),
     })
     .eq('id', formData.get('id') as string)
   if (error) return { error: error.message }
   revalidatePath('/settings')
+  revalidatePath('/treasury')
   return { success: true }
 }
 
@@ -170,5 +174,58 @@ export async function updateUserRole(userId: string, role: 'strategic' | 'operat
     .eq('id', userId)
   if (error) return { error: error.message }
   revalidatePath('/settings')
+  return { success: true }
+}
+
+// ─── Tesoreria a decadi ───────────────────────────────────────────────────────
+
+export async function updateEstimate(id: string, monthlyCents: number, pct: [number, number, number], active: boolean) {
+  if (monthlyCents < 0) return { error: 'Importo non valido' }
+  if (pct.some(p => p < 0) || Math.abs(pct[0] + pct[1] + pct[2] - 100) > 0.1) return { error: 'Le tre percentuali devono fare 100' }
+  const supabase = await createClient()
+  const { error } = await supabase.from('treasury_estimates').update({
+    monthly_cents: monthlyCents, pct_d1: pct[0], pct_d2: pct[1], pct_d3: pct[2], active, updated_at: new Date().toISOString(),
+  }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/settings')
+  revalidatePath('/treasury')
+  return { success: true }
+}
+
+export async function createEstimate(input: {
+  companyId: string; label: string; kind: 'incasso' | 'muro' | 'automatico' | 'fornitori'
+  monthlyCents: number; pct: [number, number, number]
+}) {
+  if (!input.label.trim()) return { error: 'Il nome è obbligatorio' }
+  if (Math.abs(input.pct[0] + input.pct[1] + input.pct[2] - 100) > 0.1) return { error: 'Le tre percentuali devono fare 100' }
+  const supabase = await createClient()
+  const { error } = await supabase.from('treasury_estimates').insert({
+    company_id: input.companyId, label: input.label.trim(), kind: input.kind, category: 'altro',
+    monthly_cents: Math.max(0, input.monthlyCents), pct_d1: input.pct[0], pct_d2: input.pct[1], pct_d3: input.pct[2],
+  })
+  if (error) return { error: error.message }
+  revalidatePath('/settings')
+  revalidatePath('/treasury')
+  return { success: true }
+}
+
+export async function updateBacklogBefore(companyId: string, date: string | null) {
+  if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'Data non valida' }
+  const supabase = await createClient()
+  const { error } = await supabase.from('companies').update({ backlog_before: date }).eq('id', companyId)
+  if (error) return { error: error.message }
+  revalidatePath('/settings')
+  revalidatePath('/treasury')
+  return { success: true }
+}
+
+export async function updateGroupThreshold(cents: number) {
+  if (cents < 0) return { error: 'Importo non valido' }
+  const supabase = await createClient()
+  const { error } = await supabase.from('treasury_settings')
+    .update({ group_threshold_cents: cents, updated_at: new Date().toISOString() }).eq('id', true)
+  if (error) return { error: error.message }
+  revalidatePath('/settings')
+  revalidatePath('/treasury')
   return { success: true }
 }
