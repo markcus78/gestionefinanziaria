@@ -70,6 +70,7 @@ export function bucketOf(decades: Decade[], iso: string): number {
 export type OutRow = {
   id: string
   companyId: string
+  supplierId: string | null
   supplierName: string | null
   supplierCategory: string | null
   excludeFromTreasury: boolean
@@ -140,16 +141,19 @@ export function splitMonthly(monthlyCents: number, pct: [number, number, number]
 
 // ─── Blocco ──────────────────────────────────────────────────────────────────
 
-export type RowKey = 'incassi' | 'muro' | 'automatici' | 'pianificati' | 'fattureSotto' | 'fattureSopra' | 'nuoveFatture'
-export const OUT_ROWS: RowKey[] = ['muro', 'automatici', 'pianificati', 'fattureSotto', 'fattureSopra', 'nuoveFatture']
+export type RowKey = 'incassi' | 'muro' | 'automatici' | 'pianificati' | 'arretrati' | 'fattureSotto' | 'fattureSopra' | 'nuoveFatture'
+export const OUT_ROWS: RowKey[] = ['muro', 'automatici', 'pianificati', 'arretrati', 'fattureSotto', 'fattureSopra', 'nuoveFatture']
 
 export type CellItem = {
   label: string
   cents: number
-  source: 'stima' | 'coffa' | 'previsione' | 'scadenzario' | 'impegno' | 'staff'
+  source: 'stima' | 'coffa' | 'previsione' | 'scadenzario' | 'impegno' | 'staff' | 'piano'
   date?: string
   rowId?: string
   companyId?: string
+  supplierId?: string | null
+  installmentId?: string
+  itemId?: string
   method?: string | null
   doc?: string | null
   estimateId?: string
@@ -188,6 +192,17 @@ export type BlockInput = {
   realStaff: Set<string>                      // `${companyId}|${commitmentType}|${month}` (mese di cassa)
   manualRevenue: Map<string, number>          // `${companyId}|${month}` → cents (monthly_revenue_forecasts)
   coffa: { days: Map<string, number>; months: Map<string, number> } | null  // giorno/mese 'YYYY-MM' → cents
+  installments?: Installment[]                // quote non pagate dei piani di rientro
+}
+
+export type Installment = {
+  id: string
+  itemId: string
+  companyId: string
+  label: string
+  month: string
+  idx: DecadeIdx
+  cents: number
 }
 
 export type BlockResult = {
@@ -200,13 +215,14 @@ export type BlockResult = {
   decades: DecadeResult[]
   stockCents: number
   stockCount: number
+  stockItems: CellItem[]
   beyondCents: number
 }
 
 function emptyRows(): Record<RowKey, Cell> {
   return {
     incassi: { total: 0, items: [] }, muro: { total: 0, items: [] }, automatici: { total: 0, items: [] },
-    pianificati: { total: 0, items: [] }, fattureSotto: { total: 0, items: [] },
+    pianificati: { total: 0, items: [] }, arretrati: { total: 0, items: [] }, fattureSotto: { total: 0, items: [] },
     fattureSopra: { total: 0, items: [] }, nuoveFatture: { total: 0, items: [] },
   }
 }
@@ -221,6 +237,7 @@ export const SOGLIA_FATTURA_CENTS = 30000
 export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult {
   const rows = decades.map(() => emptyRows())
   let stockCents = 0, stockCount = 0, beyondCents = 0
+  const stockItems: CellItem[] = []
 
   const utenzeCompanies = new Set(
     input.estimates.filter(e => e.kind === 'muro' && e.category === 'utenze').map(e => e.companyId),
@@ -235,8 +252,15 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
       blockHasUtenzeEstimate: blockHasUtenze,
     })
     if (route === 'escluso') continue
-    if (route === 'stock') { stockCents += r.residualCents; stockCount++; continue }
     const e = effectiveDate(r)
+    if (route === 'stock') {
+      stockCents += r.residualCents; stockCount++
+      stockItems.push({
+        label: r.supplierName ?? r.documentNumber ?? '—', cents: r.residualCents, source: 'scadenzario', date: e,
+        rowId: r.id, companyId: r.companyId, supplierId: r.supplierId, method: r.paymentMethod, doc: r.documentNumber,
+      })
+      continue
+    }
     const b = bucketOf(decades, e)
     if (b < 0) { beyondCents += r.residualCents; continue }
     const label = r.supplierName ?? r.documentNumber ?? '—'
@@ -311,6 +335,21 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     }
   }
 
+  // Quote dei piani di rientro: una quota non pagata di una decade passata va in quella in corso
+  for (const q of input.installments ?? []) {
+    if (!input.companyIds.includes(q.companyId)) continue
+    const key = `${q.month}|${q.idx}`
+    let b = decades.findIndex(d => d.key === key)
+    if (b < 0) {
+      if (key < decades[0].key) b = 0
+      else { beyondCents += q.cents; continue }
+    }
+    add(rows[b].arretrati, {
+      label: q.label, cents: q.cents, source: 'piano', companyId: q.companyId,
+      installmentId: q.id, itemId: q.itemId, month: q.month, idx: q.idx,
+    })
+  }
+
   const out: DecadeResult[] = []
   let inizio = input.balanceCents
   for (let i = 0; i < decades.length; i++) {
@@ -331,7 +370,7 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     code: input.code, label: input.label,
     balanceCents: input.balanceCents, creditLineCents: input.creditLineCents,
     balanceDate: input.balanceDate, balanceDatesDiffer: input.balanceDatesDiffer,
-    decades: out, stockCents, stockCount, beyondCents,
+    decades: out, stockCents, stockCount, stockItems, beyondCents,
   }
 }
 
@@ -367,6 +406,7 @@ export function sumBlocks(blocks: BlockResult[], groupThresholdCents: number, la
     decades,
     stockCents: blocks.reduce((s, b) => s + b.stockCents, 0),
     stockCount: blocks.reduce((s, b) => s + b.stockCount, 0),
+    stockItems: blocks.flatMap(b => b.stockItems),
     beyondCents: blocks.reduce((s, b) => s + b.beyondCents, 0),
   }
 }
@@ -436,7 +476,7 @@ export function allocateWindow(
   for (let i = 0; i < n; i++) {
     const d = result.decades[i]
     const r = d.rows
-    const base = inizio + r.incassi.total - r.muro.total - r.automatici.total - r.pianificati.total - r.fattureSotto.total
+    const base = inizio + r.incassi.total - r.muro.total - r.automatici.total - r.pianificati.total - r.arretrati.total - r.fattureSotto.total
     const open = invoices.filter(v => v.start <= i)
     for (const v of open) v.before[i] = v.original - v.paid.slice(0, i).reduce((a, b) => a + b, 0)
     const dovuto = open.reduce((s, v) => s + v.before[i], 0)
@@ -467,4 +507,134 @@ export function supplierKey(name: string): string {
     .replace(/\b(S R L S|S R L|SRLS|SRL|S P A|SPA|S N C|SNC|S A S|SAS|S S D|SSD|A P S|APS|A R L|ARL|UNIPERSONALE|SOCIETA|SOCIETÀ|A SOCIO UNICO)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+// ─── Il debito arretrato (Pezzo 3) ───────────────────────────────────────────
+//
+// L'arretrato sono le partite che il cruscotto lascia fuori (stockItems). Si raggruppano
+// per creditore dentro la società: la decisione e il piano di rientro stanno in
+// backlog_items e backlog_installments, le righe restano quelle dello scadenzario.
+
+export type BacklogDecision = 'da_decidere' | 'pagare' | 'dilazionare' | 'stralcio' | 'non_si_paga'
+
+export function backlogKey(supplierId: string | null | undefined, name: string | null | undefined): string {
+  return supplierId ? `S:${supplierId}` : `N:${supplierKey(name ?? '')}`
+}
+
+export type BacklogItemRow = {
+  id: string
+  companyId: string
+  creditorKey: string
+  decision: BacklogDecision
+  agreedCents: number | null
+  notes: string | null
+}
+export type BacklogInstallmentRow = {
+  id: string
+  itemId: string
+  month: string
+  idx: DecadeIdx
+  cents: number
+  paidAt: string | null
+}
+
+export type BacklogCreditor = {
+  companyId: string
+  key: string
+  name: string
+  itemId: string | null
+  decision: BacklogDecision
+  agreedCents: number | null
+  notes: string | null
+  rows: CellItem[]         // partite aperte, la più vecchia prima
+  residualCents: number    // quanto resta nello scadenzario
+  targetCents: number      // quanto si è deciso di pagare: residuo, o l'importo concordato nello stralcio
+  plannedCents: number     // quote non ancora pagate
+  paidCents: number        // quote pagate
+  installments: BacklogInstallmentRow[]
+  from: string | null
+  to: string | null
+}
+
+export function groupBacklog(
+  stockItems: CellItem[],
+  items: BacklogItemRow[],
+  installments: BacklogInstallmentRow[],
+): BacklogCreditor[] {
+  const byKey = new Map<string, BacklogCreditor>()
+  for (const it of stockItems) {
+    if (!it.companyId) continue
+    const key = backlogKey(it.supplierId, it.label)
+    const k = `${it.companyId}|${key}`
+    let c = byKey.get(k)
+    if (!c) {
+      c = {
+        companyId: it.companyId, key, name: it.label, itemId: null, decision: 'da_decidere', agreedCents: null, notes: null,
+        rows: [], residualCents: 0, targetCents: 0, plannedCents: 0, paidCents: 0, installments: [], from: null, to: null,
+      }
+      byKey.set(k, c)
+    }
+    c.rows.push(it)
+    c.residualCents += it.cents
+  }
+  const itemById = new Map(items.map(i => [i.id, i]))
+  for (const i of items) {
+    const c = byKey.get(`${i.companyId}|${i.creditorKey}`)
+    if (!c) continue
+    c.itemId = i.id
+    c.decision = i.decision
+    c.agreedCents = i.agreedCents
+    c.notes = i.notes
+  }
+  const byItem = new Map<string, BacklogCreditor>()
+  for (const c of byKey.values()) if (c.itemId) byItem.set(c.itemId, c)
+  for (const q of installments) {
+    const c = byItem.get(q.itemId)
+    if (!c || !itemById.has(q.itemId)) continue
+    c.installments.push(q)
+    if (q.paidAt) c.paidCents += q.cents
+    else c.plannedCents += q.cents
+  }
+  const out = [...byKey.values()]
+  for (const c of out) {
+    c.rows.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))
+    c.installments.sort((a, b) => `${a.month}|${a.idx}`.localeCompare(`${b.month}|${b.idx}`))
+    c.from = c.rows[0]?.date ?? null
+    c.to = c.rows[c.rows.length - 1]?.date ?? null
+    c.targetCents = c.decision === 'stralcio' && c.agreedCents !== null
+      ? Math.max(0, c.agreedCents - c.paidCents)
+      : c.residualCents
+  }
+  return out.sort((a, b) => b.residualCents - a.residualCents)
+}
+
+// Le quote che vanno nel cruscotto: solo quelle non pagate di un creditore deciso
+// (pagare, dilazionare, stralcio) e ancora presente nell'arretrato.
+export function activeInstallments(creditors: BacklogCreditor[]): Installment[] {
+  const out: Installment[] = []
+  for (const c of creditors) {
+    if (c.decision === 'da_decidere' || c.decision === 'non_si_paga' || !c.itemId) continue
+    for (const q of c.installments) {
+      if (q.paidAt) continue
+      out.push({ id: q.id, itemId: c.itemId, companyId: c.companyId, label: c.name, month: q.month, idx: q.idx, cents: q.cents })
+    }
+  }
+  return out
+}
+
+// N quote uguali da una decade: le prime arrotondate per difetto, il resto all'ultima.
+export function splitPlan(totalCents: number, n: number, start: Pick<Decade, 'month' | 'idx'>): { month: string; idx: DecadeIdx; cents: number }[] {
+  if (n <= 0 || totalCents <= 0) return []
+  const q = Math.floor(totalCents / n)
+  const out: { month: string; idx: DecadeIdx; cents: number }[] = []
+  let month = start.month, idx: DecadeIdx = start.idx
+  for (let i = 0; i < n; i++) {
+    out.push({ month, idx, cents: i === n - 1 ? totalCents - q * (n - 1) : q })
+    if (idx === 3) {
+      const [y, m] = month.split('-').map(Number)
+      month = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+      idx = 1
+    } else idx = (idx + 1) as DecadeIdx
+  }
+  return out
 }

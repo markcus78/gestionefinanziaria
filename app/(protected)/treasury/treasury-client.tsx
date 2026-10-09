@@ -6,9 +6,10 @@ import { AlertTriangle, TrendingDown, Pencil, Check, X, Archive } from 'lucide-r
 import CruscottoTab from './cruscotto-tab'
 import FattureTab from './fatture-tab'
 import AvvisiTab from './avvisi-tab'
+import ArretratoTab from './arretrato-tab'
 import { updateAccountBalance } from './actions'
 import type { BankAccount } from '@/lib/types/database'
-import type { BlockResult, WindowResult } from '@/lib/decadi'
+import type { BacklogCreditor, BlockResult, WindowResult } from '@/lib/decadi'
 
 type Props = {
   view: string
@@ -18,6 +19,7 @@ type Props = {
   notices: { key: string; notified: boolean; notifiedAt: string | null }[]
   subBlocks: BlockResult[]
   subWindows: WindowResult[]
+  creditors: BacklogCreditor[]
   accounts: BankAccount[]
   companies: { id: string; code: string }[]
   today: string
@@ -101,7 +103,7 @@ function AccountRow({ account, companyCode, today }: { account: BankAccount; com
   )
 }
 
-export default function TreasuryClient({ view, blocks, result, window, notices, subBlocks, subWindows, accounts, companies, today, coffa }: Props) {
+export default function TreasuryClient({ view, blocks, result, window, notices, subBlocks, subWindows, creditors, accounts, companies, today, coffa }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
 
@@ -120,6 +122,9 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
   const wd = window.decades.map((w, i) => ({ ...w, decade: result.decades[i].decade }))
   const fabbisogno = wd.filter(d => d.fabbisogno > 0)
   const sottoFido = wd.filter(d => d.dispFido < 0)
+  const daDecidere = creditors.filter(c => c.decision === 'da_decidere')
+  const senzaPiano = creditors.filter(c => (c.decision === 'pagare' || c.decision === 'dilazionare' || c.decision === 'stralcio')
+    && c.plannedCents === 0 && c.targetCents > 0)
 
   return (
     <div className="space-y-4">
@@ -208,9 +213,13 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
           <div className="flex items-start gap-2 px-4 py-3 bg-zinc-800/40 border border-zinc-700 rounded-xl text-sm">
             <Archive className="w-4 h-4 text-zinc-400 mt-0.5 shrink-0" />
             <div>
-              <span className="text-zinc-300 font-medium">Arretrato fuori dal cruscotto: {formatEur(result.stockCents)}</span>
+              <span className="text-zinc-300 font-medium">Arretrato: {formatEur(result.stockCents)}</span>
               <span className="text-zinc-500 ml-2">
-                {result.stockCount} partite: scadute prima della data di taglio, utenze e personale scaduti. Si decidono a parte.
+                {daDecidere.length > 0
+                  ? <>da decidere {formatEur(daDecidere.reduce((s, c) => s + c.residualCents, 0))} su {daDecidere.length} creditori</>
+                  : 'tutto deciso'}
+                {senzaPiano.length > 0 && <> · {senzaPiano.length} decisi senza quote</>}
+                {' '}· si gestisce nella scheda Arretrato; nel cruscotto entrano solo le quote decise
               </span>
             </div>
           </div>
@@ -222,6 +231,7 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
           { id: 'cruscotto', label: 'Cruscotto' },
           { id: 'fatture', label: 'Fatture da pagare' },
           { id: 'avvisi', label: 'Avvisi ai fornitori' },
+          { id: 'arretrato', label: 'Arretrato' },
         ].map(t => (
           <button
             key={t.id}
@@ -237,6 +247,7 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
 
       {tab === 'cruscotto' && <CruscottoTab key={view} result={result} window={window} subBlocks={subBlocks} subWindows={subWindows} pctEditable={view === 'GRUPPO'} />}
       {tab === 'fatture' && <FattureTab key={view} result={result} window={window} companies={companies} />}
+      {tab === 'arretrato' && <ArretratoTab key={view} creditors={creditors} decades={result.decades.map(d => d.decade)} companies={companies} today={today} />}
       {tab === 'avvisi' && <AvvisiTab key={view} result={result} window={window} notices={notices} companies={companies} today={today} />}
     </div>
   )

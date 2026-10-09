@@ -15,11 +15,12 @@ const ROWS: { key: RowKey; label: string; sign: 1 | -1 }[] = [
   { key: 'muro', label: 'Muro: personale, utenze, F24', sign: -1 },
   { key: 'automatici', label: 'Uscite automatiche: RID, rate, addebiti', sign: -1 },
   { key: 'pianificati', label: 'Spese pianificate (impegni)', sign: -1 },
+  { key: 'arretrati', label: 'Rientro arretrati (quote decise)', sign: -1 },
   { key: 'fattureSotto', label: 'Fatture sotto 300 €', sign: -1 },
   { key: 'fattureSopra', label: 'Fatture sopra 300 € che scadono', sign: -1 },
   { key: 'nuoveFatture', label: 'Nuove fatture fornitori (stima)', sign: -1 },
 ]
-const BEFORE_WINDOW: RowKey[] = ['incassi', 'muro', 'automatici', 'pianificati', 'fattureSotto']
+const BEFORE_WINDOW: RowKey[] = ['incassi', 'muro', 'automatici', 'pianificati', 'arretrati', 'fattureSotto']
 const INTO_WINDOW: RowKey[] = ['fattureSopra', 'nuoveFatture']
 
 function formatPct(p: number) {
@@ -27,7 +28,7 @@ function formatPct(p: number) {
 }
 
 const SOURCE_LABEL: Record<CellItem['source'], string> = {
-  stima: 'stima', coffa: 'Coffa', previsione: 'previsione', scadenzario: 'scadenzario', impegno: 'impegno', staff: 'staff',
+  stima: 'stima', coffa: 'Coffa', previsione: 'previsione', scadenzario: 'scadenzario', impegno: 'impegno', staff: 'staff', piano: 'piano di rientro',
 }
 
 function Amount({ cents, strong }: { cents: number; strong?: boolean }) {
@@ -201,10 +202,10 @@ function Grid({ result, window, compact, pctEditable, onPick, picked }: {
           {rowsBefore.map(cellRow)}
           {compact && (
             <tr className="border-b border-zinc-800/50">
-              <td className="px-3 py-1.5 text-zinc-300">Uscite fisse e fatture sotto 300 €</td>
+              <td className="px-3 py-1.5 text-zinc-300">Uscite fisse, quote arretrati e fatture sotto 300 €</td>
               {ds.map(d => (
                 <td key={d.decade.key} className="px-3 py-1.5 text-right">
-                  <Amount cents={-(d.rows.muro.total + d.rows.automatici.total + d.rows.pianificati.total + d.rows.fattureSotto.total)} />
+                  <Amount cents={-(d.rows.muro.total + d.rows.automatici.total + d.rows.pianificati.total + d.rows.arretrati.total + d.rows.fattureSotto.total)} />
                 </td>
               ))}
             </tr>

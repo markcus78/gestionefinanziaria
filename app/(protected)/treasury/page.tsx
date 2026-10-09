@@ -3,8 +3,9 @@ import { redirect } from 'next/navigation'
 import { Landmark } from 'lucide-react'
 import TreasuryClient from './treasury-client'
 import {
-  todayRome, buildDecades, computeBlock, sumBlocks, allocateWindow, suggestPct,
+  todayRome, buildDecades, computeBlock, sumBlocks, allocateWindow, suggestPct, groupBacklog, activeInstallments,
   type BlockCode, type BlockResult, type Estimate, type OutRow, type WindowResult,
+  type BacklogItemRow, type BacklogInstallmentRow, type DecadeIdx, type Installment,
 } from '@/lib/decadi'
 import type { BankAccount } from '@/lib/types/database'
 
@@ -18,7 +19,7 @@ const BLOCKS: { code: BlockCode; label: string }[] = [
 ]
 
 type OpenRow = {
-  id: string; company_id: string; supplier_name: string | null; due_date: string; postponed_to: string | null
+  id: string; company_id: string; supplier_id: string | null; supplier_name: string | null; due_date: string; postponed_to: string | null
   amount_cents: number; paid_amount_cents: number | null; payment_method: string | null; entry_type: string
   commitment_type: string | null; document_number: string | null; is_intercompany: boolean | null
   supplier_registry: { category: string | null; exclude_from_treasury: boolean } | null
@@ -51,6 +52,8 @@ export default async function TreasuryPage({
     { data: staffRaw },
     { data: pctRaw },
     { data: noticesRaw },
+    { data: backlogItemsRaw },
+    { data: backlogQuotesRaw },
   ] = await Promise.all([
     supabase.from('companies').select('id, code, name, minimum_cash_threshold_cents, treasury_block, backlog_before').eq('is_active', true).order('code'),
     supabase.from('bank_accounts').select('*').eq('is_active', true).order('company_id'),
@@ -65,13 +68,15 @@ export default async function TreasuryPage({
       .gte('due_date', firstDay.slice(0, 8) + '01').lte('due_date', lastDay),
     supabase.from('treasury_window_pct').select('month, idx, pct').in('month', months),
     supabase.from('supplier_notices').select('supplier_key, display_name, notified, notified_at'),
+    supabase.from('backlog_items').select('id, company_id, creditor_key, decision, agreed_cents, notes'),
+    supabase.from('backlog_installments').select('id, item_id, month, idx, amount_cents, paid_at'),
   ])
 
   // Uscite aperte: oltre 1000 righe, quindi a pagine
   const openRows: OpenRow[] = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase.from('payment_schedule')
-      .select('id, company_id, supplier_name, due_date, postponed_to, amount_cents, paid_amount_cents, payment_method, entry_type, commitment_type, document_number, is_intercompany, supplier_registry(category, exclude_from_treasury)')
+      .select('id, company_id, supplier_id, supplier_name, due_date, postponed_to, amount_cents, paid_amount_cents, payment_method, entry_type, commitment_type, document_number, is_intercompany, supplier_registry(category, exclude_from_treasury)')
       .eq('flow_type', 'out')
       .in('status', ['pending', 'scheduled', 'partial', 'postponed'])
       .order('id')
@@ -112,6 +117,7 @@ export default async function TreasuryPage({
   const rows: OutRow[] = openRows.map(r => ({
     id: r.id,
     companyId: r.company_id,
+    supplierId: r.supplier_id,
     supplierName: r.supplier_name,
     supplierCategory: r.supplier_registry?.category ?? null,
     excludeFromTreasury: r.supplier_registry?.exclude_from_treasury ?? false,
@@ -126,7 +132,16 @@ export default async function TreasuryPage({
   }))
 
   const allAccounts = (accounts ?? []) as BankAccount[]
-  const blocks: BlockResult[] = BLOCKS.map(b => {
+  const backlogItems: BacklogItemRow[] = (backlogItemsRaw ?? []).map(i => ({
+    id: i.id, companyId: i.company_id, creditorKey: i.creditor_key, decision: i.decision,
+    agreedCents: i.agreed_cents, notes: i.notes,
+  }))
+  const backlogQuotes: BacklogInstallmentRow[] = (backlogQuotesRaw ?? []).map(q => ({
+    id: q.id, itemId: q.item_id, month: q.month, idx: q.idx as DecadeIdx, cents: q.amount_cents, paidAt: q.paid_at,
+  }))
+
+  // Due giri: il primo dà l'arretrato (che non dipende dalle quote), il secondo mette le quote nel cruscotto
+  const computeAll = (installments: Installment[]) => BLOCKS.map(b => {
     const comps = allCompanies.filter(c => c.treasury_block === b.code)
     const ids = comps.map(c => c.id)
     const accs = allAccounts.filter(a => ids.includes(a.company_id))
@@ -140,9 +155,11 @@ export default async function TreasuryPage({
       thresholdCents: comps.reduce((s, c) => s + (c.minimum_cash_threshold_cents ?? 0), 0),
       today, backlogBefore,
       rows: rows.filter(r => ids.includes(r.companyId)),
-      estimates, overrides, realStaff, manualRevenue, coffa,
+      estimates, overrides, realStaff, manualRevenue, coffa, installments,
     }, decades)
   })
+  const creditors = groupBacklog(computeAll([]).flatMap(b => b.stockItems), backlogItems, backlogQuotes)
+  const blocks: BlockResult[] = computeAll(activeInstallments(creditors))
   const group = sumBlocks(blocks, settings?.group_threshold_cents ?? 500000)
 
   // La percentuale della finestra si decide sul gruppo e vale uguale per ogni blocco
@@ -158,6 +175,8 @@ export default async function TreasuryPage({
 
   const view = (sp.block && BLOCKS.some(b => b.code === sp.block)) ? sp.block : 'GRUPPO'
   const shown = view === 'GRUPPO' ? group : blocks.find(b => b.code === view)!
+  const blockOfCompany = new Map(allCompanies.map(c => [c.id, c.treasury_block as string | null]))
+  const creditorsShown = view === 'GRUPPO' ? creditors : creditors.filter(c => blockOfCompany.get(c.companyId) === view)
   const accountsShown = view === 'GRUPPO'
     ? allAccounts
     : allAccounts.filter(a => allCompanies.some(c => c.id === a.company_id && c.treasury_block === view))
@@ -177,6 +196,7 @@ export default async function TreasuryPage({
         notices={(noticesRaw ?? []).map(n => ({ key: n.supplier_key, notified: n.notified, notifiedAt: n.notified_at }))}
         subBlocks={view === 'GRUPPO' ? blocks : []}
         subWindows={view === 'GRUPPO' ? blocks.map(b => windows[b.code]) : []}
+        creditors={creditorsShown}
         accounts={accountsShown}
         companies={allCompanies.map(c => ({ id: c.id, code: c.code }))}
         today={today}

@@ -1,6 +1,6 @@
 // Prove del calcolo a decadi: node scripts/prove-decadi.ts
 import {
-  allocateWindow, suggestPct, supplierKey,
+  allocateWindow, suggestPct, supplierKey, groupBacklog, activeInstallments, splitPlan, backlogKey,
   decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, computeBlock, sumBlocks,
   type Estimate, type OutRow, type BlockInput,
 } from '../lib/decadi.ts'
@@ -36,7 +36,7 @@ eq('split esatto', splitMonthly(3189800, [33.34, 33.33, 33.33]).reduce((a, b) =>
 
 // ── Instradamento ──
 const base: OutRow = {
-  id: 'x', companyId: 'A', supplierName: 'Fornitore', supplierCategory: null, excludeFromTreasury: false,
+  id: 'x', companyId: 'A', supplierId: null, supplierName: 'Fornitore', supplierCategory: null, excludeFromTreasury: false,
   dueDate: '2026-09-01', postponedTo: null, residualCents: 50000, paymentMethod: 'Bonifico',
   entryType: 'accounting', commitmentType: 'manual', documentNumber: '1', isIntercompany: false,
 }
@@ -166,6 +166,54 @@ eq('D2 senza soldi: 0%', win.decades[1].applicata, 0)
 const decisa = allocateWindow(fw, i => ({ suggerita: 0, decisa: i === 0 ? 0.5 : null }))
 eq('% decisa a mano: 50% in D1', decisa.decades[0].pagato, 50000)
 eq('saldo con la decisa', decisa.decades[0].fine, 30000)
+
+
+// ── Arretrato (Pezzo 3) ──
+const arr = computeBlock(blockInput('WT_ARIES', ['WT'], {
+  estimates: [], balanceCents: 100000,
+  backlogBefore: new Map([['WT', '2026-01-01']]),
+  rows: [
+    { ...base, id: 'a1', companyId: 'WT', supplierId: 'S1', supplierName: 'DEA', residualCents: 300000, dueDate: '2019-05-01' },
+    { ...base, id: 'a2', companyId: 'WT', supplierId: 'S1', supplierName: 'DEA', residualCents: 100000, dueDate: '2018-01-01' },
+    { ...base, id: 'a3', companyId: 'WT', supplierId: null, supplierName: 'AMA S.p.a.', residualCents: 50000, dueDate: '2020-01-01' },
+    { ...base, id: 'f1', companyId: 'WT', residualCents: 60000 },
+  ],
+}), dec)
+eq('arretrato: tre partite in stock', arr.stockItems.length, 3)
+const cred = groupBacklog(arr.stockItems, [
+  { id: 'I1', companyId: 'WT', creditorKey: backlogKey('S1', 'DEA'), decision: 'dilazionare', agreedCents: null, notes: null },
+  { id: 'I2', companyId: 'WT', creditorKey: backlogKey(null, 'AMA SPA'), decision: 'non_si_paga', agreedCents: null, notes: null },
+], [
+  { id: 'Q0', itemId: 'I1', month: '2026-09', idx: 3, cents: 50000, paidAt: null },
+  { id: 'Q1', itemId: 'I1', month: '2026-10', idx: 2, cents: 50000, paidAt: null },
+  { id: 'Q2', itemId: 'I1', month: '2026-10', idx: 1, cents: 50000, paidAt: '2026-10-05' },
+  { id: 'Q3', itemId: 'I2', month: '2026-10', idx: 1, cents: 10000, paidAt: null },
+])
+eq('due creditori, DEA per primo', cred.map(c => c.name), ['DEA', 'AMA S.p.a.'])
+eq('DEA: partite dalla più vecchia', cred[0].rows.map(r => r.rowId), ['a2', 'a1'])
+eq('AMA riconosciuta per nome senza forma societaria', cred[1].decision, 'non_si_paga')
+eq('DEA: pianificato e pagato', [cred[0].plannedCents, cred[0].paidCents], [100000, 50000])
+const quote = activeInstallments(cred)
+eq('nel cruscotto solo quote non pagate di creditori decisi', quote.map(q => q.id), ['Q0', 'Q1'])
+const arr2 = computeBlock(blockInput('WT_ARIES', ['WT'], {
+  estimates: [], balanceCents: 100000, backlogBefore: new Map([['WT', '2026-01-01']]),
+  rows: [{ ...base, id: 'f1', companyId: 'WT', residualCents: 60000 }],
+  installments: quote,
+}), dec)
+eq('quota di settembre non pagata nella decade in corso', arr2.decades[0].rows.arretrati.total, 50000)
+eq('quota di Ott D2', arr2.decades[1].rows.arretrati.total, 50000)
+const w2 = allocateWindow(arr2, (_, disp, dov) => ({ suggerita: suggestPct(disp, dov), decisa: null }))
+// D1: 1.000 − 500 di quota = 500 disponibili su 600 di dovuto
+eq('la quota si paga prima della percentuale', w2.decades[0].pagato, 50000)
+eq('saldo dopo quota e fornitori', w2.decades[0].fine, 0)
+const strl = groupBacklog(arr.stockItems, [
+  { id: 'I3', companyId: 'WT', creditorKey: backlogKey('S1', 'DEA'), decision: 'stralcio', agreedCents: 150000, notes: null },
+], [{ id: 'Q4', itemId: 'I3', month: '2026-10', idx: 1, cents: 50000, paidAt: '2026-10-02' }])
+eq('stralcio: resta da pagare il concordato meno il pagato', strl[0].targetCents, 100000)
+eq('da decidere senza scheda', strl[1].decision, 'da_decidere')
+eq('piano 3 quote da Ott D3', splitPlan(100000, 3, { month: '2026-10', idx: 3 }),
+  [{ month: '2026-10', idx: 3, cents: 33333 }, { month: '2026-11', idx: 1, cents: 33333 }, { month: '2026-11', idx: 2, cents: 33334 }])
+eq('piano a cavallo dell\'anno', splitPlan(2, 2, { month: '2026-12', idx: 3 }).map(q => q.month), ['2026-12', '2027-01'])
 
 console.log(`\n${ok} prove superate, ${ko} fallite`)
 if (ko) process.exit(1)
