@@ -1,5 +1,6 @@
 // Prove del calcolo a decadi: node scripts/prove-decadi.ts
 import {
+  allocateWindow, suggestPct, supplierKey,
   decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, computeBlock, sumBlocks,
   type Estimate, type OutRow, type BlockInput,
 } from '../lib/decadi.ts'
@@ -135,6 +136,36 @@ const fatt = computeBlock(blockInput('APPIAE', ['AP'], {
 eq('sotto 300', fatt.decades[0].rows.fattureSotto.total, 29999)
 eq('sopra 300', fatt.decades[0].rows.fattureSopra.total, 30000)
 eq('arretrato fuori cruscotto', [fatt.stockCents, fatt.stockCount], [100000, 1])
+
+// ── Finestra di pagamento ──
+eq('chiave: SETAV con e senza punti', supplierKey('S.E.T.A.V. SRL'), 'S E T A V')
+eq('chiave: stessa ditta scritta in due modi', supplierKey('READY4FUN S.S.D. A R.L.'), supplierKey('Ready4fun SSD arl'))
+eq('chiave: non taglia dentro le parole', supplierKey('SASSI SPA'), 'SASSI')
+eq('suggerita senza dovuto', suggestPct(-100, 0), 1)
+eq('suggerita limitata a zero', suggestPct(-100, 500), 0)
+eq('suggerita 40%', suggestPct(400, 1000), 0.4)
+
+const fw = computeBlock(blockInput('APPIAE', ['AP'], {
+  estimates: [], balanceCents: 100000,
+  rows: [
+    { ...base, id: 'w1', companyId: 'AP', residualCents: 60000 },
+    { ...base, id: 'w2', companyId: 'AP', residualCents: 40000 },
+    { ...base, id: 'w3', companyId: 'AP', residualCents: 20000 },
+    { ...base, id: 'w4', companyId: 'AP', residualCents: 50000, dueDate: '2026-10-15' },
+  ],
+}), dec)
+// D1: base = 1.000 − 200 (sotto 300) = 800, soglia 0, dovuto 1.000 → 80%
+const win = allocateWindow(fw, (_, disp, dov) => ({ suggerita: suggestPct(disp, dov), decisa: null }))
+near('D1 % suggerita 80', Math.round(win.decades[0].suggerita * 100), 80, 0)
+eq('D1 pagato 800 €', win.decades[0].pagato, 80000)
+eq('D1 slittano 200 €', win.decades[0].riporto, 20000)
+eq('D1 saldo a zero', win.decades[0].fine, 0)
+eq('w1: 480 € in D1', win.invoices.find(v => v.rowId === 'w1')!.paid[0], 48000)
+eq('D2 dovuto = riporto + w4', win.decades[1].dovuto, 70000)
+eq('D2 senza soldi: 0%', win.decades[1].applicata, 0)
+const decisa = allocateWindow(fw, i => ({ suggerita: 0, decisa: i === 0 ? 0.5 : null }))
+eq('% decisa a mano: 50% in D1', decisa.decades[0].pagato, 50000)
+eq('saldo con la decisa', decisa.decades[0].fine, 30000)
 
 console.log(`\n${ok} prove superate, ${ko} fallite`)
 if (ko) process.exit(1)

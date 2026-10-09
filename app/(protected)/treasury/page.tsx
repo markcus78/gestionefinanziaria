@@ -3,8 +3,8 @@ import { redirect } from 'next/navigation'
 import { Landmark } from 'lucide-react'
 import TreasuryClient from './treasury-client'
 import {
-  todayRome, buildDecades, computeBlock, sumBlocks,
-  type BlockCode, type BlockResult, type Estimate, type OutRow,
+  todayRome, buildDecades, computeBlock, sumBlocks, allocateWindow, suggestPct,
+  type BlockCode, type BlockResult, type Estimate, type OutRow, type WindowResult,
 } from '@/lib/decadi'
 import type { BankAccount } from '@/lib/types/database'
 
@@ -49,6 +49,8 @@ export default async function TreasuryPage({
     { data: forecastsRaw },
     { data: snapshot },
     { data: staffRaw },
+    { data: pctRaw },
+    { data: noticesRaw },
   ] = await Promise.all([
     supabase.from('companies').select('id, code, name, minimum_cash_threshold_cents, treasury_block, backlog_before').eq('is_active', true).order('code'),
     supabase.from('bank_accounts').select('*').eq('is_active', true).order('company_id'),
@@ -61,6 +63,8 @@ export default async function TreasuryPage({
       .select('company_id, commitment_type, due_date, postponed_to, document_number')
       .eq('entry_type', 'commitment').in('commitment_type', STAFF_TYPES).neq('status', 'cancelled')
       .gte('due_date', firstDay.slice(0, 8) + '01').lte('due_date', lastDay),
+    supabase.from('treasury_window_pct').select('month, idx, pct').in('month', months),
+    supabase.from('supplier_notices').select('supplier_key, display_name, notified, notified_at'),
   ])
 
   // Uscite aperte: oltre 1000 righe, quindi a pagine
@@ -141,6 +145,17 @@ export default async function TreasuryPage({
   })
   const group = sumBlocks(blocks, settings?.group_threshold_cents ?? 500000)
 
+  // La percentuale della finestra si decide sul gruppo e vale uguale per ogni blocco
+  const decise = new Map((pctRaw ?? []).map(r => [`${r.month}|${r.idx}`, Number(r.pct) / 100]))
+  const groupWindow = allocateWindow(group, (i, disponibile, dovuto) => ({
+    suggerita: suggestPct(disponibile, dovuto),
+    decisa: decise.get(decades[i].key) ?? null,
+  }))
+  const windows: Record<string, WindowResult> = { GRUPPO: groupWindow }
+  for (const b of blocks) {
+    windows[b.code] = allocateWindow(b, i => ({ suggerita: groupWindow.decades[i].applicata, decisa: null }))
+  }
+
   const view = (sp.block && BLOCKS.some(b => b.code === sp.block)) ? sp.block : 'GRUPPO'
   const shown = view === 'GRUPPO' ? group : blocks.find(b => b.code === view)!
   const accountsShown = view === 'GRUPPO'
@@ -158,7 +173,10 @@ export default async function TreasuryPage({
         view={view}
         blocks={BLOCKS}
         result={shown}
+        window={windows[view]}
+        notices={(noticesRaw ?? []).map(n => ({ key: n.supplier_key, notified: n.notified, notifiedAt: n.notified_at }))}
         subBlocks={view === 'GRUPPO' ? blocks : []}
+        subWindows={view === 'GRUPPO' ? blocks.map(b => windows[b.code]) : []}
         accounts={accountsShown}
         companies={allCompanies.map(c => ({ id: c.id, code: c.code }))}
         today={today}

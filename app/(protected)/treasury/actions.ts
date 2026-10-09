@@ -32,3 +32,31 @@ export async function setEstimateOverride(estimateId: string, month: string, idx
   revalidatePath('/treasury')
   return { success: true }
 }
+
+// pct = null torna alla percentuale suggerita
+export async function setWindowPct(month: string, idx: number, pct: number | null) {
+  if (pct !== null && (pct < 0 || pct > 100)) return { error: 'La percentuale va da 0 a 100' }
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const { error } = pct === null
+    ? await supabase.from('treasury_window_pct').delete().eq('month', month).eq('idx', idx)
+    : await supabase.from('treasury_window_pct').upsert({
+        month, idx, pct, decided_by: user?.id ?? null, decided_at: new Date().toISOString(),
+      })
+  if (error) return { error: error.message }
+  revalidatePath('/treasury')
+  return { success: true }
+}
+
+export async function setSupplierNotified(key: string, name: string, notified: boolean, date: string | null) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const { error } = await supabase.from('supplier_notices').upsert({
+    supplier_key: key, display_name: name, notified,
+    notified_at: notified ? date : null, notified_by: notified ? user?.id ?? null : null,
+    updated_at: new Date().toISOString(),
+  })
+  if (error) return { error: error.message }
+  revalidatePath('/treasury')
+  return { success: true }
+}

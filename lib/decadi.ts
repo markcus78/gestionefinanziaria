@@ -149,6 +149,9 @@ export type CellItem = {
   source: 'stima' | 'coffa' | 'previsione' | 'scadenzario' | 'impegno' | 'staff'
   date?: string
   rowId?: string
+  companyId?: string
+  method?: string | null
+  doc?: string | null
   estimateId?: string
   month?: string
   idx?: DecadeIdx
@@ -239,7 +242,10 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     const label = r.supplierName ?? r.documentNumber ?? '—'
     const source: CellItem['source'] = r.entryType === 'accounting' ? 'scadenzario'
       : route === 'muro' ? 'staff' : 'impegno'
-    const item: CellItem = { label, cents: r.residualCents, source, date: e, rowId: r.id }
+    const item: CellItem = {
+      label, cents: r.residualCents, source, date: e, rowId: r.id, companyId: r.companyId, method: r.paymentMethod,
+      doc: r.documentNumber,
+    }
     const key: RowKey = route === 'muro' ? 'muro'
       : route === 'automatico' ? 'automatici'
       : route === 'pianificato' ? 'pianificati'
@@ -299,7 +305,7 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
         if (cents === 0 && !replaced && ovr === undefined) continue
         add(rows[i][key], {
           label: est.label + (replaced ? ' (sostituita dalle righe reali)' : ''),
-          cents, source, estimateId: est.id, month, idx: d.idx, replaced,
+          cents, source, estimateId: est.id, companyId: est.companyId, month, idx: d.idx, replaced,
         })
       }
     }
@@ -363,4 +369,102 @@ export function sumBlocks(blocks: BlockResult[], groupThresholdCents: number, la
     stockCount: blocks.reduce((s, b) => s + b.stockCount, 0),
     beyondCents: blocks.reduce((s, b) => s + b.beyondCents, 0),
   }
+}
+
+// ─── La finestra di pagamento (regole del 07/09/2026) ───────────────────────
+//
+// In ogni decade il muro, le uscite automatiche, gli impegni e le fatture sotto
+// 300 € si pagano per intero. Quello che resta, tolta la soglia minima, si divide
+// fra TUTTI i fornitori sopra 300 € con una sola percentuale: nessuno a zero,
+// nessuno scelto. Quello che non si paga slitta alla decade dopo e si somma al
+// dovuto. La percentuale è una per tutto il gruppo: i blocchi la ricevono già decisa.
+
+export type WindowDecade = {
+  dovuto: number
+  suggerita: number
+  decisa: number | null
+  applicata: number
+  pagato: number
+  riporto: number
+  inizio: number
+  fine: number
+  dispFido: number
+  fabbisogno: number
+}
+
+export type InvoiceLedger = {
+  key: string
+  label: string
+  rowId?: string
+  companyId?: string
+  date?: string
+  method?: string | null
+  doc?: string | null
+  estimate: boolean      // stima delle nuove fatture, non una fattura vera
+  start: number          // decade in cui entra nel dovuto
+  original: number
+  before: number[]       // quanto restava all'inizio di ogni decade
+  paid: number[]         // quanto si paga in ogni decade
+}
+
+export type WindowResult = { decades: WindowDecade[]; invoices: InvoiceLedger[] }
+
+export function suggestPct(disponibile: number, dovuto: number): number {
+  if (dovuto <= 0) return 1
+  return Math.max(0, Math.min(1, disponibile / dovuto))
+}
+
+export function allocateWindow(
+  result: BlockResult,
+  pctFor: (i: number, disponibile: number, dovuto: number) => { suggerita: number; decisa: number | null },
+): WindowResult {
+  const n = result.decades.length
+  const invoices: InvoiceLedger[] = []
+  result.decades.forEach((d, i) => {
+    for (const it of [...d.rows.fattureSopra.items, ...d.rows.nuoveFatture.items]) {
+      if (it.cents <= 0) continue
+      invoices.push({
+        key: it.rowId ?? `${it.estimateId}|${it.month}|${it.idx}`,
+        label: it.label, rowId: it.rowId, companyId: it.companyId, date: it.date, method: it.method,
+        doc: it.doc, estimate: !it.rowId, start: i, original: it.cents, before: Array(n).fill(0), paid: Array(n).fill(0),
+      })
+    }
+  })
+
+  const decades: WindowDecade[] = []
+  let inizio = result.balanceCents
+  for (let i = 0; i < n; i++) {
+    const d = result.decades[i]
+    const r = d.rows
+    const base = inizio + r.incassi.total - r.muro.total - r.automatici.total - r.pianificati.total - r.fattureSotto.total
+    const open = invoices.filter(v => v.start <= i)
+    for (const v of open) v.before[i] = v.original - v.paid.slice(0, i).reduce((a, b) => a + b, 0)
+    const dovuto = open.reduce((s, v) => s + v.before[i], 0)
+    const { suggerita, decisa } = pctFor(i, base - d.soglia, dovuto)
+    const applicata = decisa ?? suggerita
+    let pagato = 0
+    for (const v of open) {
+      const pay = Math.round(v.before[i] * applicata)
+      v.paid[i] = pay
+      pagato += pay
+    }
+    const fine = base - pagato
+    decades.push({
+      dovuto, suggerita, decisa, applicata, pagato, riporto: dovuto - pagato,
+      inizio, fine, dispFido: fine + d.fido, fabbisogno: Math.max(0, d.soglia - fine),
+    })
+    inizio = fine
+  }
+  return { decades, invoices }
+}
+
+// Un fornitore è lo stesso nelle quattro società: si confronta il nome senza
+// punteggiatura e senza forma societaria.
+export function supplierKey(name: string): string {
+  return name.toUpperCase()
+    .replace(/[.,'"&()\-/]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\b(S R L S|S R L|SRLS|SRL|S P A|SPA|S N C|SNC|S A S|SAS|S S D|SSD|A P S|APS|A R L|ARL|UNIPERSONALE|SOCIETA|SOCIETÀ|A SOCIO UNICO)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }

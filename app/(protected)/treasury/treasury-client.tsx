@@ -4,15 +4,20 @@ import { useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertTriangle, TrendingDown, Pencil, Check, X, Archive } from 'lucide-react'
 import CruscottoTab from './cruscotto-tab'
+import FattureTab from './fatture-tab'
+import AvvisiTab from './avvisi-tab'
 import { updateAccountBalance } from './actions'
 import type { BankAccount } from '@/lib/types/database'
-import type { BlockResult } from '@/lib/decadi'
+import type { BlockResult, WindowResult } from '@/lib/decadi'
 
 type Props = {
   view: string
   blocks: { code: string; label: string }[]
   result: BlockResult
+  window: WindowResult
+  notices: { key: string; notified: boolean; notifiedAt: string | null }[]
   subBlocks: BlockResult[]
+  subWindows: WindowResult[]
   accounts: BankAccount[]
   companies: { id: string; code: string }[]
   today: string
@@ -96,7 +101,7 @@ function AccountRow({ account, companyCode, today }: { account: BankAccount; com
   )
 }
 
-export default function TreasuryClient({ view, blocks, result, subBlocks, accounts, companies, today, coffa }: Props) {
+export default function TreasuryClient({ view, blocks, result, window, notices, subBlocks, subWindows, accounts, companies, today, coffa }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
 
@@ -111,8 +116,10 @@ export default function TreasuryClient({ view, blocks, result, subBlocks, accoun
 
   const codeOf = (companyId: string) => companies.find(c => c.id === companyId)?.code ?? ''
   const staleAccounts = accounts.filter(a => !a.balance_date || a.balance_date < today)
-  const fabbisogno = result.decades.filter(d => d.fabbisogno > 0)
-  const sottoFido = result.decades.filter(d => d.dispFido < 0)
+  const tab = sp.get('tab') ?? 'cruscotto'
+  const wd = window.decades.map((w, i) => ({ ...w, decade: result.decades[i].decade }))
+  const fabbisogno = wd.filter(d => d.fabbisogno > 0)
+  const sottoFido = wd.filter(d => d.dispFido < 0)
 
   return (
     <div className="space-y-4">
@@ -210,7 +217,27 @@ export default function TreasuryClient({ view, blocks, result, subBlocks, accoun
         )}
       </div>
 
-      <CruscottoTab key={view} result={result} subBlocks={subBlocks} />
+      <div className="flex gap-0 border-b border-zinc-800">
+        {[
+          { id: 'cruscotto', label: 'Cruscotto' },
+          { id: 'fatture', label: 'Fatture da pagare' },
+          { id: 'avvisi', label: 'Avvisi ai fornitori' },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => navigate({ tab: t.id === 'cruscotto' ? null : t.id })}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === t.id ? 'border-blue-500 text-zinc-100' : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'cruscotto' && <CruscottoTab key={view} result={result} window={window} subBlocks={subBlocks} subWindows={subWindows} pctEditable={view === 'GRUPPO'} />}
+      {tab === 'fatture' && <FattureTab key={view} result={result} window={window} companies={companies} />}
+      {tab === 'avvisi' && <AvvisiTab key={view} result={result} window={window} notices={notices} companies={companies} today={today} />}
     </div>
   )
 }
