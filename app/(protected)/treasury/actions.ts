@@ -85,6 +85,11 @@ export async function saveBacklogDecision(input: {
     decided_by: user?.id ?? null, decided_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }, { onConflict: 'company_id,creditor_key' }).select('id').single()
   if (error) return { error: error.message }
+  // Senza decisione di pagare, le quote non pagate non hanno più senso: si tolgono
+  if (input.decision === 'da_decidere' || input.decision === 'non_si_paga') {
+    const { error: qErr } = await supabase.from('backlog_installments').delete().eq('item_id', data.id).is('paid_at', null)
+    if (qErr) return { error: qErr.message }
+  }
   revalidatePath('/treasury')
   return { success: true, id: data.id as string }
 }

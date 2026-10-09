@@ -224,7 +224,9 @@ export default function ArretratoTab({ creditors, decades, companies, today }: {
   const risparmio = sum(c => c.decision === 'stralcio' && c.agreedCents !== null, c => Math.max(0, c.residualCents - c.targetCents))
 
   const shown = creditors
-    .filter(c => filter === 'tutti' || (filter === 'da' ? c.decision === 'da_decidere' : c.decision !== 'da_decidere'))
+    // il creditore aperto resta in vista anche quando la decisione lo sposta di elenco
+    .filter(c => filter === 'tutti' || `${c.companyId}|${c.key}` === open
+      || (filter === 'da' ? c.decision === 'da_decidere' : c.decision !== 'da_decidere'))
     .filter(c => !q || c.name.toLowerCase().includes(q.toLowerCase()))
 
   return (
