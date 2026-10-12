@@ -22,7 +22,7 @@ type OpenRow = {
   id: string; company_id: string; supplier_id: string | null; supplier_name: string | null; due_date: string; postponed_to: string | null
   amount_cents: number; paid_amount_cents: number | null; payment_method: string | null; entry_type: string
   commitment_type: string | null; document_number: string | null; is_intercompany: boolean | null
-  supplier_registry: { category: string | null; exclude_from_treasury: boolean; treasury_as_staff: boolean } | null
+  supplier_registry: { category: string | null; exclude_from_treasury: boolean; treasury_as_staff: boolean; treasury_installments_only: boolean } | null
 }
 
 export default async function TreasuryPage({
@@ -76,7 +76,7 @@ export default async function TreasuryPage({
   const openRows: OpenRow[] = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase.from('payment_schedule')
-      .select('id, company_id, supplier_id, supplier_name, due_date, postponed_to, amount_cents, paid_amount_cents, payment_method, entry_type, commitment_type, document_number, is_intercompany, supplier_registry(category, exclude_from_treasury, treasury_as_staff)')
+      .select('id, company_id, supplier_id, supplier_name, due_date, postponed_to, amount_cents, paid_amount_cents, payment_method, entry_type, commitment_type, document_number, is_intercompany, supplier_registry(category, exclude_from_treasury, treasury_as_staff, treasury_installments_only)')
       .eq('flow_type', 'out')
       .in('status', ['pending', 'scheduled', 'partial', 'postponed'])
       .order('id')
@@ -114,6 +114,24 @@ export default async function TreasuryPage({
     [`${f.company_id}|${f.year}-${String(f.month).padStart(2, '0')}`, f.forecast_gross_cents]))
   const backlogBefore = new Map(allCompanies.map(c => [c.id, c.backlog_before as string | null]))
 
+  // Fornitori «solo rate»: una riga è una rata se il suo documento ha più scadenze (anche già pagate)
+  const ratedIds = [...new Set(openRows.filter(r => r.supplier_registry?.treasury_installments_only && r.supplier_id).map(r => r.supplier_id!))]
+  const docCount = new Map<string, number>()
+  if (ratedIds.length) {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase.from('payment_schedule')
+        .select('company_id, supplier_id, document_number')
+        .in('supplier_id', ratedIds).eq('entry_type', 'accounting').neq('status', 'cancelled')
+        .order('id').range(from, from + 999)
+      if (error) throw new Error(error.message)
+      for (const d of data ?? []) {
+        const k = `${d.company_id}|${d.supplier_id}|${d.document_number}`
+        docCount.set(k, (docCount.get(k) ?? 0) + 1)
+      }
+      if (!data || data.length < 1000) break
+    }
+  }
+
   const rows: OutRow[] = openRows.map(r => ({
     id: r.id,
     companyId: r.company_id,
@@ -122,6 +140,8 @@ export default async function TreasuryPage({
     supplierCategory: r.supplier_registry?.category ?? null,
     excludeFromTreasury: r.supplier_registry?.exclude_from_treasury ?? false,
     supplierAsStaff: r.supplier_registry?.treasury_as_staff ?? false,
+    installmentsOnly: r.supplier_registry?.treasury_installments_only ?? false,
+    isInstallment: (docCount.get(`${r.company_id}|${r.supplier_id}|${r.document_number}`) ?? 0) > 1,
     dueDate: r.due_date,
     postponedTo: r.postponed_to,
     residualCents: Math.max(0, Math.abs(r.amount_cents) - (r.paid_amount_cents ?? 0)),

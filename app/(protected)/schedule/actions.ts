@@ -72,6 +72,7 @@ export async function updateSupplier(
     accepts_postponement?: boolean | null
     postponement_notes?: string | null
     treasury_as_staff?: boolean
+    treasury_installments_only?: boolean
   }
 ) {
   const supabase = await createClient()

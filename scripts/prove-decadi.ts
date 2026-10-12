@@ -272,5 +272,11 @@ eq('Forini del 3/10 al 12/10: muro', routeOut({ ...base, supplierCategory: 'uten
 eq('utenza del 31/08 al 12/10: arretrato', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-08-31' }, { ...ctx, today: '2026-10-12' }), 'stock')
 eq('utenza del 20/09 al 12/10: ancora muro', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-09-20' }, { ...ctx, today: '2026-10-12' }), 'muro')
 
+
+// ── Fornitore «solo rate» (Acea ATO 2, 12/10) ──
+eq('Acea: rata nel muro, anche se utenza', routeOut({ ...base, supplierCategory: 'utenze', installmentsOnly: true, isInstallment: true, dueDate: '2026-11-01' }, ctx), 'muro')
+eq('Acea: rata scaduta resta nel muro', routeOut({ ...base, supplierCategory: 'utenze', installmentsOnly: true, isInstallment: true }, { ...ctx, backlogBefore: '2026-10-01' }), 'muro')
+eq('Acea: bolletta singola non si conta', routeOut({ ...base, supplierCategory: 'utenze', installmentsOnly: true, isInstallment: false, dueDate: '2026-10-09' }, ctx), 'escluso')
+
 console.log(`\n${ok} prove superate, ${ko} fallite`)
 if (ko) process.exit(1)

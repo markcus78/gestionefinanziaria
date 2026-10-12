@@ -131,6 +131,7 @@ export type SupplierRegistry = {
   bank_iban: string | null
   exclude_from_treasury?: boolean
   treasury_as_staff?: boolean
+  treasury_installments_only?: boolean
   created_at: string
   updated_at: string
 }

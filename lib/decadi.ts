@@ -75,6 +75,8 @@ export type OutRow = {
   supplierCategory: string | null
   excludeFromTreasury: boolean
   supplierAsStaff?: boolean     // fornitore trattato come personale (es. Casali Marco)
+  installmentsOnly?: boolean    // fornitore «solo rate» (es. Acea ATO 2)
+  isInstallment?: boolean       // la riga è una rata: il suo documento ha più scadenze
   dueDate: string
   postponedTo: string | null
   residualCents: number
@@ -114,6 +116,9 @@ export function routeOut(
   if (r.excludeFromTreasury || r.isIntercompany) return 'escluso'
   // Fornitore trattato come personale: muro, anche se scaduto (lo stipendio arretrato si paga)
   if (r.supplierAsStaff && r.entryType === 'accounting') return 'muro'
+  // Fornitore «solo rate»: le rate si pagano per intero (saltarne una fa saltare il piano);
+  // le bollette a scadenza unica si lasciano scadere e tornano come rate
+  if (r.installmentsOnly && r.entryType === 'accounting') return r.isInstallment ? 'muro' : 'escluso'
 
   if (r.entryType === 'commitment') {
     if (r.commitmentType === 'tax_item') return f24Phase(r.dueDate, ctx.today)
