@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import { setEstimateOverride, setWindowPct } from './actions'
@@ -74,10 +74,13 @@ function OverrideEditor({ item, onDone }: { item: CellItem; onDone: () => void }
 
 function Detail({ d, rowKey, onClose }: { d: DecadeResult; rowKey: RowKey; onClose: () => void }) {
   const [editing, setEditing] = useState<string | null>(null)
+  // Il dettaglio sta sotto una tabella lunga: senza scorrere, il clic sembrava non fare niente
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => { ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, [d.decade.key, rowKey])
   const row = ROWS.find(r => r.key === rowKey)!
   const items = [...d.rows[rowKey].items].sort((a, b) => b.cents - a.cents)
   return (
-    <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+    <div ref={ref} className="bg-zinc-900 border border-indigo-500/50 rounded-xl p-4 scroll-mt-4">
       <div className="flex items-center justify-between mb-3">
         <div className="text-sm text-zinc-200">
           <span className="font-medium">{row.label}</span>
@@ -162,7 +165,11 @@ function Grid({ result, window, compact, pctEditable, onPick, picked }: {
 
   const cellRow = (r: typeof ROWS[number]) => (
     <tr key={r.key} className="border-b border-zinc-800/50">
-      <td className="px-3 py-1.5 text-zinc-300">{r.label}</td>
+      <td className="px-3 py-1.5 text-zinc-300">
+        {onPick
+          ? <button onClick={() => onPick(0, r.key)} className="text-left hover:text-zinc-100 hover:underline underline-offset-2" title="Vedi le voci della decade in corso">{r.label}</button>
+          : r.label}
+      </td>
       {ds.map((d, i) => {
         const active = picked?.i === i && picked.k === r.key
         return (
