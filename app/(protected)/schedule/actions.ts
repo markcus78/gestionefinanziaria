@@ -71,6 +71,7 @@ export async function updateSupplier(
     default_priority?: number | null
     accepts_postponement?: boolean | null
     postponement_notes?: string | null
+    treasury_as_staff?: boolean
   }
 ) {
   const supabase = await createClient()

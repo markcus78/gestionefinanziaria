@@ -243,5 +243,11 @@ const fw24 = allocateWindow(fb, (_, disp, dov) => ({ suggerita: suggestPct(disp,
 // 1.000 − 633 = 367 disponibili su 500 di fattura
 eq('il ravvedimento si paga prima dei fornitori', fw24.decades[0].pagato, 36700)
 
+
+// ── Fornitore trattato come personale (regola del 12/10) ──
+eq('Casali Marco: fattura nel muro', routeOut({ ...base, supplierAsStaff: true, dueDate: '2026-10-15' }, ctx), 'muro')
+eq('Casali Marco: anche scaduta prima del taglio', routeOut({ ...base, supplierAsStaff: true }, { ...ctx, backlogBefore: '2026-10-01' }), 'muro')
+eq('Casali Marco escluso resta escluso', routeOut({ ...base, supplierAsStaff: true, excludeFromTreasury: true }, ctx), 'escluso')
+
 console.log(`\n${ok} prove superate, ${ko} fallite`)
 if (ko) process.exit(1)

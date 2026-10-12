@@ -103,6 +103,16 @@ function SupplierRow({ supplier, supplierAgg, scheduleHref }: {
           className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-indigo-500 focus:ring-indigo-500 focus:ring-1 disabled:opacity-50 cursor-pointer"
         />
       </td>
+      <td className="px-3 py-2.5 text-center">
+        <input
+          type="checkbox"
+          defaultChecked={supplier.treasury_as_staff ?? false}
+          onChange={e => update({ treasury_as_staff: e.target.checked })}
+          disabled={isPending}
+          title="In Tesoreria le sue fatture vanno nel muro e si pagano per intero, come uno stipendio"
+          className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-emerald-500 focus:ring-emerald-500 focus:ring-1 disabled:opacity-50 cursor-pointer"
+        />
+      </td>
       {/* Aggregated amounts */}
       <td className="px-3 py-2.5 text-right text-xs tabular-nums">
         <AmtCell cents={supplierAgg.overdueCents} warn />
@@ -172,6 +182,7 @@ export default function SuppliersTab({ suppliers, agg }: Props) {
               <th className="text-left px-3 py-2 text-zinc-400 font-medium">Categoria</th>
               <th className="text-center px-3 py-2 text-zinc-400 font-medium">Critico</th>
               <th className="text-center px-3 py-2 text-zinc-400 font-medium">Posticipo</th>
+              <th className="text-center px-3 py-2 text-zinc-400 font-medium" title="In Tesoreria le sue fatture vanno nel muro e si pagano per intero, come uno stipendio">Personale</th>
               <th className="text-right px-3 py-2 text-red-400 font-medium">Scaduto</th>
               <th className="text-right px-3 py-2 text-zinc-400 font-medium">7 gg</th>
               <th className="text-right px-3 py-2 text-zinc-400 font-medium">30 gg</th>

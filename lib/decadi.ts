@@ -74,6 +74,7 @@ export type OutRow = {
   supplierName: string | null
   supplierCategory: string | null
   excludeFromTreasury: boolean
+  supplierAsStaff?: boolean     // fornitore trattato come personale (es. Casali Marco)
   dueDate: string
   postponedTo: string | null
   residualCents: number
@@ -111,6 +112,8 @@ export function routeOut(
   if (r.residualCents <= 0) return 'escluso'
   if (r.documentNumber?.startsWith('BDG-') || r.commitmentType === 'forecast') return 'escluso'
   if (r.excludeFromTreasury || r.isIntercompany) return 'escluso'
+  // Fornitore trattato come personale: muro, anche se scaduto (lo stipendio arretrato si paga)
+  if (r.supplierAsStaff && r.entryType === 'accounting') return 'muro'
 
   if (r.entryType === 'commitment') {
     if (r.commitmentType === 'tax_item') return f24Phase(r.dueDate, ctx.today)

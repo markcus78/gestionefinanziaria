@@ -22,7 +22,7 @@ type OpenRow = {
   id: string; company_id: string; supplier_id: string | null; supplier_name: string | null; due_date: string; postponed_to: string | null
   amount_cents: number; paid_amount_cents: number | null; payment_method: string | null; entry_type: string
   commitment_type: string | null; document_number: string | null; is_intercompany: boolean | null
-  supplier_registry: { category: string | null; exclude_from_treasury: boolean } | null
+  supplier_registry: { category: string | null; exclude_from_treasury: boolean; treasury_as_staff: boolean } | null
 }
 
 export default async function TreasuryPage({
@@ -76,7 +76,7 @@ export default async function TreasuryPage({
   const openRows: OpenRow[] = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase.from('payment_schedule')
-      .select('id, company_id, supplier_id, supplier_name, due_date, postponed_to, amount_cents, paid_amount_cents, payment_method, entry_type, commitment_type, document_number, is_intercompany, supplier_registry(category, exclude_from_treasury)')
+      .select('id, company_id, supplier_id, supplier_name, due_date, postponed_to, amount_cents, paid_amount_cents, payment_method, entry_type, commitment_type, document_number, is_intercompany, supplier_registry(category, exclude_from_treasury, treasury_as_staff)')
       .eq('flow_type', 'out')
       .in('status', ['pending', 'scheduled', 'partial', 'postponed'])
       .order('id')
@@ -121,6 +121,7 @@ export default async function TreasuryPage({
     supplierName: r.supplier_name,
     supplierCategory: r.supplier_registry?.category ?? null,
     excludeFromTreasury: r.supplier_registry?.exclude_from_treasury ?? false,
+    supplierAsStaff: r.supplier_registry?.treasury_as_staff ?? false,
     dueDate: r.due_date,
     postponedTo: r.postponed_to,
     residualCents: Math.max(0, Math.abs(r.amount_cents) - (r.paid_amount_cents ?? 0)),

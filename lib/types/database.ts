@@ -129,6 +129,8 @@ export type SupplierRegistry = {
   accepts_postponement: boolean | null
   postponement_notes: string | null
   bank_iban: string | null
+  exclude_from_treasury?: boolean
+  treasury_as_staff?: boolean
   created_at: string
   updated_at: string
 }
