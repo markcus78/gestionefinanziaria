@@ -84,7 +84,18 @@ export type OutRow = {
   isIntercompany: boolean
 }
 
-export type Route = 'muro' | 'automatico' | 'pianificato' | 'fattura' | 'stock' | 'escluso'
+export type Route = 'muro' | 'automatico' | 'pianificato' | 'f24' | 'fattura' | 'stock' | 'escluso'
+
+// F24 (regola di Marco, 12/10/2026): fino alla scadenza del 16 è muro. Scaduto, resta da
+// recuperare col ravvedimento fino alla fine del mese dopo la scadenza (riga a parte, si può
+// posticipare). Dopo quella data non si paga più subito: si aspetta la cartella e va in arretrato.
+export function f24Limit(dueDate: string): string {
+  return decadeBounds(nextMonth(dueDate.slice(0, 7)), 3).to
+}
+export function f24Phase(dueDate: string, today: string): 'muro' | 'f24' | 'stock' {
+  if (dueDate >= today) return 'muro'
+  return today > f24Limit(dueDate) ? 'stock' : 'f24'
+}
 
 const STAFF_TYPES = new Set(['salary_item', 'extra_item', 'collab_item', 'piva_item', 'tax_item'])
 
@@ -102,6 +113,7 @@ export function routeOut(
   if (r.excludeFromTreasury || r.isIntercompany) return 'escluso'
 
   if (r.entryType === 'commitment') {
+    if (r.commitmentType === 'tax_item') return f24Phase(r.dueDate, ctx.today)
     return r.commitmentType && STAFF_TYPES.has(r.commitmentType) ? 'muro' : 'pianificato'
   }
 
@@ -110,7 +122,12 @@ export function routeOut(
     if (!ctx.blockHasUtenzeEstimate) return 'muro'
     return e >= ctx.today ? 'escluso' : 'stock'
   }
-  if (r.supplierCategory === 'stipendi' || r.supplierCategory === 'tributi_f24') {
+  if (r.supplierCategory === 'tributi_f24') {
+    // il futuro è coperto dalla stima F24; lo scaduto segue la regola del ravvedimento
+    const ph = f24Phase(r.dueDate, ctx.today)
+    return ph === 'muro' ? (e >= ctx.today ? 'escluso' : 'f24') : ph
+  }
+  if (r.supplierCategory === 'stipendi') {
     return e >= ctx.today ? 'escluso' : 'stock'
   }
   if ((r.paymentMethod === 'RID' || r.paymentMethod === 'RI.BA.') && e >= ctx.today) return 'automatico'
@@ -141,8 +158,8 @@ export function splitMonthly(monthlyCents: number, pct: [number, number, number]
 
 // ─── Blocco ──────────────────────────────────────────────────────────────────
 
-export type RowKey = 'incassi' | 'muro' | 'automatici' | 'pianificati' | 'arretrati' | 'fattureSotto' | 'fattureSopra' | 'nuoveFatture'
-export const OUT_ROWS: RowKey[] = ['muro', 'automatici', 'pianificati', 'arretrati', 'fattureSotto', 'fattureSopra', 'nuoveFatture']
+export type RowKey = 'incassi' | 'muro' | 'automatici' | 'pianificati' | 'f24' | 'arretrati' | 'fattureSotto' | 'fattureSopra' | 'nuoveFatture'
+export const OUT_ROWS: RowKey[] = ['muro', 'automatici', 'pianificati', 'f24', 'arretrati', 'fattureSotto', 'fattureSopra', 'nuoveFatture']
 
 export type CellItem = {
   label: string
@@ -222,7 +239,7 @@ export type BlockResult = {
 function emptyRows(): Record<RowKey, Cell> {
   return {
     incassi: { total: 0, items: [] }, muro: { total: 0, items: [] }, automatici: { total: 0, items: [] },
-    pianificati: { total: 0, items: [] }, arretrati: { total: 0, items: [] }, fattureSotto: { total: 0, items: [] },
+    pianificati: { total: 0, items: [] }, f24: { total: 0, items: [] }, arretrati: { total: 0, items: [] }, fattureSotto: { total: 0, items: [] },
     fattureSopra: { total: 0, items: [] }, nuoveFatture: { total: 0, items: [] },
   }
 }
@@ -233,6 +250,7 @@ function add(cell: Cell, item: CellItem) {
 }
 
 export const SOGLIA_FATTURA_CENTS = 30000
+export const F24_CREDITOR = 'Erario – F24'
 
 export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult {
   const rows = decades.map(() => emptyRows())
@@ -255,8 +273,9 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     const e = effectiveDate(r)
     if (route === 'stock') {
       stockCents += r.residualCents; stockCount++
+      const isF24 = r.commitmentType === 'tax_item' || r.supplierCategory === 'tributi_f24'
       stockItems.push({
-        label: r.supplierName ?? r.documentNumber ?? '—', cents: r.residualCents, source: 'scadenzario', date: e,
+        label: isF24 ? F24_CREDITOR : r.supplierName ?? r.documentNumber ?? '—', cents: r.residualCents, source: 'scadenzario', date: e,
         rowId: r.id, companyId: r.companyId, supplierId: r.supplierId, method: r.paymentMethod, doc: r.documentNumber,
       })
       continue
@@ -265,12 +284,13 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     if (b < 0) { beyondCents += r.residualCents; continue }
     const label = r.supplierName ?? r.documentNumber ?? '—'
     const source: CellItem['source'] = r.entryType === 'accounting' ? 'scadenzario'
-      : route === 'muro' ? 'staff' : 'impegno'
+      : route === 'muro' || route === 'f24' ? 'staff' : 'impegno'
     const item: CellItem = {
       label, cents: r.residualCents, source, date: e, rowId: r.id, companyId: r.companyId, method: r.paymentMethod,
       doc: r.documentNumber,
     }
     const key: RowKey = route === 'muro' ? 'muro'
+      : route === 'f24' ? 'f24'
       : route === 'automatico' ? 'automatici'
       : route === 'pianificato' ? 'pianificati'
       : r.residualCents < SOGLIA_FATTURA_CENTS ? 'fattureSotto' : 'fattureSopra'
@@ -476,7 +496,7 @@ export function allocateWindow(
   for (let i = 0; i < n; i++) {
     const d = result.decades[i]
     const r = d.rows
-    const base = inizio + r.incassi.total - r.muro.total - r.automatici.total - r.pianificati.total - r.arretrati.total - r.fattureSotto.total
+    const base = inizio + r.incassi.total - r.muro.total - r.automatici.total - r.pianificati.total - r.f24.total - r.arretrati.total - r.fattureSotto.total
     const open = invoices.filter(v => v.start <= i)
     for (const v of open) v.before[i] = v.original - v.paid.slice(0, i).reduce((a, b) => a + b, 0)
     const dovuto = open.reduce((s, v) => s + v.before[i], 0)

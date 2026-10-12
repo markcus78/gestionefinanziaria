@@ -1,6 +1,6 @@
 // Prove del calcolo a decadi: node scripts/prove-decadi.ts
 import {
-  allocateWindow, suggestPct, supplierKey, groupBacklog, activeInstallments, splitPlan, backlogKey,
+  allocateWindow, suggestPct, supplierKey, groupBacklog, activeInstallments, splitPlan, backlogKey, f24Limit,
   decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, computeBlock, sumBlocks,
   type Estimate, type OutRow, type BlockInput,
 } from '../lib/decadi.ts'
@@ -214,6 +214,34 @@ eq('da decidere senza scheda', strl[1].decision, 'da_decidere')
 eq('piano 3 quote da Ott D3', splitPlan(100000, 3, { month: '2026-10', idx: 3 }),
   [{ month: '2026-10', idx: 3, cents: 33333 }, { month: '2026-11', idx: 1, cents: 33333 }, { month: '2026-11', idx: 2, cents: 33334 }])
 eq('piano a cavallo dell\'anno', splitPlan(2, 2, { month: '2026-12', idx: 3 }).map(q => q.month), ['2026-12', '2027-01'])
+
+
+// ── F24: muro, ravvedimento, arretrato (regola del 12/10) ──
+eq('F24 limite: 16/09 → 31/10', f24Limit('2026-09-16'), '2026-10-31')
+eq('F24 limite: 16/12 → 31/01', f24Limit('2026-12-16'), '2027-01-31')
+const t12 = '2026-10-12'
+const f24 = (due: string, extra: Partial<OutRow> = {}) => routeOut({ ...base, entryType: 'commitment', commitmentType: 'tax_item', dueDate: due, ...extra }, { ...ctx, today: t12 })
+eq('F24 del 16/10 non scaduto: muro', f24('2026-10-16'), 'muro')
+eq('F24 del 16/09 scaduto: da recuperare', f24('2026-09-16'), 'f24')
+eq('F24 del 20/08 oltre il mese dopo: arretrato', f24('2026-08-20'), 'stock')
+eq('F24 del 16/09 posticipato a novembre: resta da recuperare', f24('2026-09-16', { postponedTo: '2026-11-05' }), 'f24')
+eq('F24 contabile scaduto: da recuperare', routeOut({ ...base, supplierCategory: 'tributi_f24', dueDate: '2026-09-16' }, { ...ctx, today: t12 }), 'f24')
+eq('F24 contabile futuro: coperto dalla stima', routeOut({ ...base, supplierCategory: 'tributi_f24', dueDate: '2026-10-16' }, { ...ctx, today: t12 }), 'escluso')
+const dec12 = buildDecades(t12, 3)
+const fb = computeBlock(blockInput('APPIAE', ['AP'], {
+  estimates: [], balanceCents: 100000, today: t12,
+  rows: [
+    { ...base, id: 'g1', companyId: 'AP', entryType: 'commitment', commitmentType: 'tax_item', dueDate: '2026-09-16', residualCents: 63300 },
+    { ...base, id: 'g2', companyId: 'AP', entryType: 'commitment', commitmentType: 'tax_item', dueDate: '2026-08-20', residualCents: 1590000 },
+    { ...base, id: 'g3', companyId: 'AP', residualCents: 50000, dueDate: '2026-10-01' },
+  ],
+}), dec12)
+eq('F24 da recuperare nella decade in corso', fb.decades[0].rows.f24.total, 63300)
+eq('F24 di agosto fuori dal muro', fb.decades[0].rows.muro.total, 0)
+eq('F24 di agosto in arretrato come Erario', fb.stockItems.map(i => i.label), ['Erario – F24'])
+const fw24 = allocateWindow(fb, (_, disp, dov) => ({ suggerita: suggestPct(disp, dov), decisa: null }))
+// 1.000 − 633 = 367 disponibili su 500 di fattura
+eq('il ravvedimento si paga prima dei fornitori', fw24.decades[0].pagato, 36700)
 
 console.log(`\n${ok} prove superate, ${ko} fallite`)
 if (ko) process.exit(1)

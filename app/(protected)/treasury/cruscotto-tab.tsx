@@ -15,12 +15,13 @@ const ROWS: { key: RowKey; label: string; sign: 1 | -1 }[] = [
   { key: 'muro', label: 'Muro: personale, utenze, F24', sign: -1 },
   { key: 'automatici', label: 'Uscite automatiche: RID, rate, addebiti', sign: -1 },
   { key: 'pianificati', label: 'Spese pianificate (impegni)', sign: -1 },
+  { key: 'f24', label: 'F24 scaduti da recuperare (ravvedimento)', sign: -1 },
   { key: 'arretrati', label: 'Rientro arretrati (quote decise)', sign: -1 },
   { key: 'fattureSotto', label: 'Fatture sotto 300 €', sign: -1 },
   { key: 'fattureSopra', label: 'Fatture sopra 300 € che scadono', sign: -1 },
   { key: 'nuoveFatture', label: 'Nuove fatture fornitori (stima)', sign: -1 },
 ]
-const BEFORE_WINDOW: RowKey[] = ['incassi', 'muro', 'automatici', 'pianificati', 'arretrati', 'fattureSotto']
+const BEFORE_WINDOW: RowKey[] = ['incassi', 'muro', 'automatici', 'pianificati', 'f24', 'arretrati', 'fattureSotto']
 const INTO_WINDOW: RowKey[] = ['fattureSopra', 'nuoveFatture']
 
 function formatPct(p: number) {
@@ -229,7 +230,7 @@ function Grid({ result, window, compact, pctEditable, onPick, picked }: {
               <td className="px-3 py-1.5 text-zinc-300">Uscite fisse, quote arretrati e fatture sotto 300 €</td>
               {ds.map(d => (
                 <td key={d.decade.key} className="px-3 py-1.5 text-right">
-                  <Amount cents={-(d.rows.muro.total + d.rows.automatici.total + d.rows.pianificati.total + d.rows.arretrati.total + d.rows.fattureSotto.total)} />
+                  <Amount cents={-(d.rows.muro.total + d.rows.automatici.total + d.rows.pianificati.total + d.rows.f24.total + d.rows.arretrati.total + d.rows.fattureSotto.total)} />
                 </td>
               ))}
             </tr>

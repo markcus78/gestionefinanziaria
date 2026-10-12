@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { applyPayment, residualCents } from '@/lib/payment-apply'
-import { supplierKey } from '@/lib/decadi'
+import { supplierKey, backlogKey, F24_CREDITOR } from '@/lib/decadi'
 
 export async function updateAccountBalance(id: string, balanceCents: number, balanceDate: string, creditLineCents: number) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(balanceDate)) return { error: 'Data del saldo non valida' }
@@ -129,17 +129,24 @@ export async function markInstallmentPaid(installmentId: string, paidDate: strin
   const { data: done } = await supabase.from('payment_transactions').select('amount_cents').eq('note', note)
   let remaining = q.amount_cents - (done ?? []).reduce((s, t) => s + t.amount_cents, 0)
 
+  // Gli F24 in arretrato sono impegni (tax_item) e righe con categoria tributi, raccolti sotto «Erario – F24»
+  const isF24 = item.creditor_key === backlogKey(null, F24_CREDITOR)
   let query = supabase.from('payment_schedule')
-    .select('id, supplier_name, amount_cents, paid_amount_cents, due_date, postponed_to')
-    .eq('company_id', item.company_id).eq('flow_type', 'out').eq('entry_type', 'accounting')
+    .select('id, supplier_name, amount_cents, paid_amount_cents, due_date, postponed_to, entry_type, commitment_type, supplier_registry(category)')
+    .eq('company_id', item.company_id).eq('flow_type', 'out')
     .in('status', ['pending', 'scheduled', 'partial', 'postponed'])
-  query = item.creditor_key.startsWith('S:')
-    ? query.eq('supplier_id', item.creditor_key.slice(2))
-    : query.is('supplier_id', null)
+  if (!isF24) {
+    query = query.eq('entry_type', 'accounting')
+    query = item.creditor_key.startsWith('S:')
+      ? query.eq('supplier_id', item.creditor_key.slice(2))
+      : query.is('supplier_id', null)
+  }
   const { data: rows, error: rErr } = await query
   if (rErr) return { error: rErr.message }
   const mine = (rows ?? [])
-    .filter(r => item.creditor_key.startsWith('S:') || `N:${supplierKey(r.supplier_name ?? '')}` === item.creditor_key)
+    .filter(r => isF24
+      ? r.commitment_type === 'tax_item' || (r.supplier_registry as unknown as { category: string | null } | null)?.category === 'tributi_f24'
+      : item.creditor_key.startsWith('S:') || `N:${supplierKey(r.supplier_name ?? '')}` === item.creditor_key)
     .map(r => ({ id: r.id, residual: residualCents(r.amount_cents, r.paid_amount_cents), date: r.postponed_to ?? r.due_date }))
     .filter(r => r.residual > 0)
     .sort((a, b) => a.date.localeCompare(b.date))
