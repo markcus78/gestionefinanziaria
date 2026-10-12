@@ -46,7 +46,7 @@ eq('taglio arretrato', routeOut(base, { ...ctx, backlogBefore: '2026-10-01' }), 
 eq('RID futuro automatico', routeOut({ ...base, paymentMethod: 'RID', dueDate: '2026-10-30' }, ctx), 'automatico')
 eq('RID scaduto si decide', routeOut({ ...base, paymentMethod: 'RID' }, ctx), 'fattura')
 eq('utenza futura coperta dalla stima', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-10-20' }, ctx), 'coperta')
-eq('utenza scaduta in arretrato', routeOut({ ...base, supplierCategory: 'utenze' }, ctx), 'stock')
+eq('utenza scaduta da oltre un mese in arretrato', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-08-31' }, ctx), 'stock')
 eq('utenza senza stima nel muro', routeOut({ ...base, supplierCategory: 'utenze' }, { ...ctx, blockHasUtenzeEstimate: false }), 'muro')
 eq('budget BDG escluso', routeOut({ ...base, entryType: 'commitment', documentNumber: 'BDG-1', commitmentType: 'salary_item' }, ctx), 'escluso')
 eq('collaboratore nel muro', routeOut({ ...base, entryType: 'commitment', commitmentType: 'collab_item' }, ctx), 'muro')
@@ -265,6 +265,12 @@ eq('la fattura non si somma al muro', ut.decades[3].rows.muro.total, 1000200)
 eq('fattura di Nov D1 sotto la stima di Nov D1', nov1.covered!.map(c => c.rowId), ['u1'])
 eq('novembre: fatture 35.000 contro stima 30.000', [nov1.monthCoveredCents, nov1.monthEstimateCents], [3500000, 3000000])
 eq('avviso solo per novembre', ut.utenzeOver.map(u => u.month), ['2026-11'])
+
+
+// ── Utenze scadute da poco: nel muro (12/10) ──
+eq('Forini del 3/10 al 12/10: muro', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-10-03' }, { ...ctx, today: '2026-10-12' }), 'muro')
+eq('utenza del 31/08 al 12/10: arretrato', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-08-31' }, { ...ctx, today: '2026-10-12' }), 'stock')
+eq('utenza del 20/09 al 12/10: ancora muro', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-09-20' }, { ...ctx, today: '2026-10-12' }), 'muro')
 
 console.log(`\n${ok} prove superate, ${ko} fallite`)
 if (ko) process.exit(1)

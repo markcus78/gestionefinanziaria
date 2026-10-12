@@ -124,7 +124,10 @@ export function routeOut(
   if (r.supplierCategory === 'utenze') {
     if (!ctx.blockHasUtenzeEstimate) return 'muro'
     // non scaduta: la paga la stima delle utenze; si tiene per confrontarla con la stima
-    return e >= ctx.today ? 'coperta' : 'stock'
+    if (e >= ctx.today) return 'coperta'
+    // scaduta da poco (fino alla fine del mese dopo, come gli F24): si paga adesso, nel muro;
+    // più vecchia: arretrato (regola di Marco, 12/10/2026, bolletta Forini del 3/10)
+    return ctx.today > f24Limit(r.dueDate) ? 'stock' : 'muro'
   }
   if (r.supplierCategory === 'tributi_f24') {
     // il futuro è coperto dalla stima F24; lo scaduto segue la regola del ravvedimento
