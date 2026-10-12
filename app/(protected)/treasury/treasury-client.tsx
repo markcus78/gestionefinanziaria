@@ -236,6 +236,18 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
             </div>
           </div>
         )}
+        {result.utenzeOver.length > 0 && (
+          <div className="flex items-start gap-2 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-sm">
+            <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+            <div>
+              <span className="text-amber-400 font-medium">Utenze sopra la stima</span>
+              <span className="text-zinc-400 ml-2">
+                {result.utenzeOver.map(u => `${u.month.slice(5, 7)}/${u.month.slice(0, 4)}: fatture ${formatEur(u.invoicesCents)} contro stima ${formatEur(u.estimateCents)}`).join(' · ')}
+                {' '}— alza la stima in Impostazioni → Tesoreria
+              </span>
+            </div>
+          </div>
+        )}
         {result.stockCount > 0 && (
           <div className="flex items-start gap-2 px-4 py-3 bg-zinc-800/40 border border-zinc-700 rounded-xl text-sm">
             <Archive className="w-4 h-4 text-zinc-400 mt-0.5 shrink-0" />

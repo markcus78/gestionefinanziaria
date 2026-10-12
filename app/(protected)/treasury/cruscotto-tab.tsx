@@ -125,6 +125,30 @@ function Detail({ d, rowKey, onClose, codeOf }: { d: DecadeResult; rowKey: RowKe
                   )}
                 </div>
                 {editing === id && <OverrideEditor item={it} onDone={() => setEditing(null)} />}
+                {it.covered !== undefined && (
+                  <div className="ml-16 mt-1 pl-3 border-l border-zinc-700 space-y-0.5">
+                    {it.monthCoveredCents !== undefined && it.monthEstimateCents !== undefined && it.monthCoveredCents > it.monthEstimateCents && (
+                      <div className="text-xs text-amber-400">
+                        Le fatture vere del mese ({formatEur(it.monthCoveredCents)}) superano la stima ({formatEur(it.monthEstimateCents)}):
+                        alza la stima in Impostazioni → Tesoreria o correggi questa quota.
+                      </div>
+                    )}
+                    {it.covered.length === 0
+                      ? <div className="text-xs text-zinc-600">Nessuna fattura vera in questa decade: conta la stima.</div>
+                      : (
+                        <>
+                          <div className="text-xs text-zinc-500">Fatture già arrivate, pagate da questa stima (non si contano due volte):</div>
+                          {it.covered.map((c, k) => (
+                            <div key={`${c.rowId}-${k}`} className="flex items-center gap-3 text-xs">
+                              <span className="flex-1 text-zinc-400">{c.label}{c.doc && <span className="text-zinc-600 ml-1">n. {c.doc}</span>}</span>
+                              {c.date && <span className="text-zinc-500">{c.date.slice(8, 10)}/{c.date.slice(5, 7)}</span>}
+                              <span className="w-24 text-right font-mono text-zinc-400">{formatEur(c.cents)}</span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                  </div>
+                )}
               </div>
             )
           })}

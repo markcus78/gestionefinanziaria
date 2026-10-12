@@ -45,7 +45,7 @@ eq('fattura scaduta', routeOut(base, ctx), 'fattura')
 eq('taglio arretrato', routeOut(base, { ...ctx, backlogBefore: '2026-10-01' }), 'stock')
 eq('RID futuro automatico', routeOut({ ...base, paymentMethod: 'RID', dueDate: '2026-10-30' }, ctx), 'automatico')
 eq('RID scaduto si decide', routeOut({ ...base, paymentMethod: 'RID' }, ctx), 'fattura')
-eq('utenza futura coperta dalla stima', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-10-20' }, ctx), 'escluso')
+eq('utenza futura coperta dalla stima', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-10-20' }, ctx), 'coperta')
 eq('utenza scaduta in arretrato', routeOut({ ...base, supplierCategory: 'utenze' }, ctx), 'stock')
 eq('utenza senza stima nel muro', routeOut({ ...base, supplierCategory: 'utenze' }, { ...ctx, blockHasUtenzeEstimate: false }), 'muro')
 eq('budget BDG escluso', routeOut({ ...base, entryType: 'commitment', documentNumber: 'BDG-1', commitmentType: 'salary_item' }, ctx), 'escluso')
@@ -248,6 +248,23 @@ eq('il ravvedimento si paga prima dei fornitori', fw24.decades[0].pagato, 36700)
 eq('Casali Marco: fattura nel muro', routeOut({ ...base, supplierAsStaff: true, dueDate: '2026-10-15' }, ctx), 'muro')
 eq('Casali Marco: anche scaduta prima del taglio', routeOut({ ...base, supplierAsStaff: true }, { ...ctx, backlogBefore: '2026-10-01' }), 'muro')
 eq('Casali Marco escluso resta escluso', routeOut({ ...base, supplierAsStaff: true, excludeFromTreasury: true }, ctx), 'escluso')
+
+
+// ── Utenze: fatture coperte dalla stima e confronto (12/10) ──
+eq('utenza futura: coperta dalla stima', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-10-20' }, ctx), 'coperta')
+const ut = computeBlock(blockInput('WT_ARIES', ['WT'], {
+  estimates: [{ id: 'U', companyId: 'WT', label: 'Utenze', kind: 'muro', category: 'utenze', monthlyCents: 3000000, pct: [33.34, 33.33, 33.33], replacedBy: [] }],
+  rows: [
+    { ...base, id: 'u1', companyId: 'WT', supplierCategory: 'utenze', dueDate: '2026-11-05', residualCents: 2500000 },
+    { ...base, id: 'u2', companyId: 'WT', supplierCategory: 'utenze', dueDate: '2026-11-25', residualCents: 1000000 },
+    { ...base, id: 'u3', companyId: 'WT', supplierCategory: 'utenze', dueDate: '2026-12-05', residualCents: 500000 },
+  ],
+}), dec)
+const nov1 = ut.decades[3].rows.muro.items.find(i => i.estimateId === 'U')!
+eq('la fattura non si somma al muro', ut.decades[3].rows.muro.total, 1000200)
+eq('fattura di Nov D1 sotto la stima di Nov D1', nov1.covered!.map(c => c.rowId), ['u1'])
+eq('novembre: fatture 35.000 contro stima 30.000', [nov1.monthCoveredCents, nov1.monthEstimateCents], [3500000, 3000000])
+eq('avviso solo per novembre', ut.utenzeOver.map(u => u.month), ['2026-11'])
 
 console.log(`\n${ok} prove superate, ${ko} fallite`)
 if (ko) process.exit(1)
