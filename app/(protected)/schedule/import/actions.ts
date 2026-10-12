@@ -175,12 +175,24 @@ async function computeDiff(
   rows: ParsedRow[],
   supabase: SupabaseClient
 ): Promise<FileDiffResult | { error: string }> {
-  const { data: dbRows, error: dbErr } = await supabase
-    .from('payment_schedule')
-    .select('id, supplier_code, document_number, document_date, due_date, amount_cents, supplier_name, status, paid_amount_cents')
-    .eq('company_id', companyId)
-    .eq('entry_type', 'accounting')
-  if (dbErr) return { error: dbErr.message }
+  // A pagine: Supabase restituisce al massimo 1000 righe per richiesta. Con un elenco tagliato
+  // le fatture pagate resterebbero aperte e quelle già presenti verrebbero duplicate.
+  const dbRows: {
+    id: string; supplier_code: string | null; document_number: string | null; document_date: string | null
+    due_date: string; amount_cents: number; supplier_name: string | null; status: string | null; paid_amount_cents: number | null
+  }[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error: dbErr } = await supabase
+      .from('payment_schedule')
+      .select('id, supplier_code, document_number, document_date, due_date, amount_cents, supplier_name, status, paid_amount_cents')
+      .eq('company_id', companyId)
+      .eq('entry_type', 'accounting')
+      .order('id')
+      .range(from, from + 999)
+    if (dbErr) return { error: dbErr.message }
+    dbRows.push(...(data ?? []))
+    if (!data || data.length < 1000) break
+  }
 
   type DbRowInfo = {
     id: string
@@ -194,7 +206,7 @@ async function computeDiff(
 
   // Map matchKey → array di dbRow (una fattura può avere N rate)
   const dbMap = new Map<string, DbRowInfo[]>()
-  for (const dbRow of dbRows ?? []) {
+  for (const dbRow of dbRows) {
     const key = buildDbMatchKey(companyId, dbRow)
     if (!key) continue
     const info: DbRowInfo = {
