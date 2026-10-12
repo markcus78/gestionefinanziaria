@@ -35,8 +35,15 @@ function formatDate(iso: string | null) {
   return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
 }
 
-function parseCents(s: string) {
-  const n = parseFloat(s.replace(/\./g, '').replace(',', '.'))
+// Accetta «12.500,50», «12500,50», «12500.50» e «12.500»: con la virgola il punto è delle
+// migliaia; senza virgola, un punto seguito da una o due cifre è il decimale.
+function parseCents(input: string) {
+  const s = input.trim().replace(/[€\s]/g, '')
+  if (!/^-?[\d.,]+$/.test(s)) return null
+  const norm = s.includes(',')
+    ? s.replace(/\./g, '').replace(',', '.')
+    : /^-?\d+\.\d{1,2}$/.test(s) ? s : s.replace(/\./g, '')
+  const n = parseFloat(norm)
   return Number.isFinite(n) ? Math.round(n * 100) : null
 }
 
@@ -54,12 +61,19 @@ function AccountRow({ account, companyCode, today }: { account: BankAccount; com
     const b = parseCents(balance)
     const f = parseCents(fido)
     if (b === null || f === null) { setError('Importo non valido'); return }
+    if (!date) { setError('Manca la data del saldo'); return }
     setError(null)
     startTransition(async () => {
       const res = await updateAccountBalance(account.id, b, date, f)
       if ('error' in res) setError(String(res.error))
       else { setOpen(false); router.refresh() }
     })
+  }
+
+  // Invio salva, Esc annulla: prima Invio non faceva niente e il saldo scritto si perdeva
+  function onKey(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') { e.preventDefault(); save() }
+    if (e.key === 'Escape') setOpen(false)
   }
 
   return (
@@ -69,18 +83,22 @@ function AccountRow({ account, companyCode, today }: { account: BankAccount; com
       {open ? (
         <>
           <td className="px-3 py-2 text-right">
-            <input value={balance} onChange={e => setBalance(e.target.value)} className="w-28 px-2 py-1 text-xs text-right bg-zinc-800 border border-zinc-600 rounded text-zinc-100" />
+            <input autoFocus value={balance} onChange={e => setBalance(e.target.value)} onKeyDown={onKey} onFocus={e => e.target.select()} className="w-28 px-2 py-1 text-xs text-right bg-zinc-800 border border-zinc-600 rounded text-zinc-100" />
           </td>
           <td className="px-3 py-2">
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} className="px-2 py-1 text-xs bg-zinc-800 border border-zinc-600 rounded text-zinc-100" />
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} onKeyDown={onKey} className="px-2 py-1 text-xs bg-zinc-800 border border-zinc-600 rounded text-zinc-100" />
           </td>
           <td className="px-3 py-2 text-right">
-            <input value={fido} onChange={e => setFido(e.target.value)} className="w-24 px-2 py-1 text-xs text-right bg-zinc-800 border border-zinc-600 rounded text-zinc-100" />
+            <input value={fido} onChange={e => setFido(e.target.value)} onKeyDown={onKey} onFocus={e => e.target.select()} className="w-24 px-2 py-1 text-xs text-right bg-zinc-800 border border-zinc-600 rounded text-zinc-100" />
           </td>
           <td className="px-3 py-2">
             <div className="flex items-center gap-2 justify-end">
-              <button onClick={save} disabled={isPending} className="text-emerald-400 hover:text-emerald-300"><Check className="w-3.5 h-3.5" /></button>
-              <button onClick={() => setOpen(false)} className="text-zinc-500 hover:text-zinc-300"><X className="w-3.5 h-3.5" /></button>
+              <button onClick={save} disabled={isPending} className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-700 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50">
+                <Check className="w-3.5 h-3.5" /> {isPending ? 'Salvo…' : 'Salva'}
+              </button>
+              <button onClick={() => setOpen(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200">
+                <X className="w-3.5 h-3.5" /> Annulla
+              </button>
               {error && <span className="text-xs text-red-400">{error}</span>}
             </div>
           </td>
