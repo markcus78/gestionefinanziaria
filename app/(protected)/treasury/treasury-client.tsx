@@ -136,7 +136,16 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
 
   const codeOf = (companyId: string) => companies.find(c => c.id === companyId)?.code ?? ''
   const staleAccounts = accounts.filter(a => !a.balance_date || a.balance_date < today)
-  const tab = sp.get('tab') ?? 'cruscotto'
+  // Il cambio di scheda resta nel browser: i dati sono già tutti qui, non serve tornare al server
+  const [tab, setTab] = useState(sp.get('tab') ?? 'cruscotto')
+  function showTab(id: string) {
+    setTab(id)
+    const params = new URLSearchParams(globalThis.location.search)
+    if (id === 'cruscotto') params.delete('tab')
+    else params.set('tab', id)
+    const q = params.toString()
+    globalThis.history.replaceState(null, '', q ? `?${q}` : globalThis.location.pathname)
+  }
   const wd = window.decades.map((w, i) => ({ ...w, decade: result.decades[i].decade }))
   const fabbisogno = wd.filter(d => d.fabbisogno > 0)
   const sottoFido = wd.filter(d => d.dispFido < 0)
@@ -253,7 +262,7 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
         ].map(t => (
           <button
             key={t.id}
-            onClick={() => navigate({ tab: t.id === 'cruscotto' ? null : t.id })}
+            onClick={() => showTab(t.id)}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t.id ? 'border-blue-500 text-zinc-100' : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
