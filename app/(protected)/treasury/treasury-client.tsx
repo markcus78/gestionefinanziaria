@@ -263,7 +263,7 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
         ))}
       </div>
 
-      {tab === 'cruscotto' && <CruscottoTab key={view} result={result} window={window} subBlocks={subBlocks} subWindows={subWindows} pctEditable={view === 'GRUPPO'} />}
+      {tab === 'cruscotto' && <CruscottoTab key={view} result={result} window={window} subBlocks={subBlocks} subWindows={subWindows} pctEditable={view === 'GRUPPO'} companies={companies} />}
       {tab === 'fatture' && <FattureTab key={view} result={result} window={window} companies={companies} />}
       {tab === 'arretrato' && <ArretratoTab key={view} creditors={creditors} decades={result.decades.map(d => d.decade)} companies={companies} today={today} />}
       {tab === 'avvisi' && <AvvisiTab key={view} result={result} window={window} notices={notices} companies={companies} today={today} />}

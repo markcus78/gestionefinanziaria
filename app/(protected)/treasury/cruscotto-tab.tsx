@@ -72,13 +72,20 @@ function OverrideEditor({ item, onDone }: { item: CellItem; onDone: () => void }
   )
 }
 
-function Detail({ d, rowKey, onClose }: { d: DecadeResult; rowKey: RowKey; onClose: () => void }) {
+function Detail({ d, rowKey, onClose, codeOf }: { d: DecadeResult; rowKey: RowKey; onClose: () => void; codeOf: (id?: string) => string }) {
   const [editing, setEditing] = useState<string | null>(null)
   // Il dettaglio sta sotto una tabella lunga: senza scorrere, il clic sembrava non fare niente
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => { ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, [d.decade.key, rowKey])
   const row = ROWS.find(r => r.key === rowKey)!
   const items = [...d.rows[rowKey].items].sort((a, b) => b.cents - a.cents)
+  // Nel Gruppo le voci sono di più società: sigla su ogni voce e totale per società in testa
+  const byCompany = new Map<string, number>()
+  for (const it of items) {
+    if (it.replaced) continue
+    const c = codeOf(it.companyId) || '—'
+    byCompany.set(c, (byCompany.get(c) ?? 0) + it.cents)
+  }
   return (
     <div ref={ref} className="bg-zinc-900 border border-indigo-500/50 rounded-xl p-4 scroll-mt-4">
       <div className="flex items-center justify-between mb-3">
@@ -89,6 +96,15 @@ function Detail({ d, rowKey, onClose }: { d: DecadeResult; rowKey: RowKey; onClo
         </div>
         <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X className="w-4 h-4" /></button>
       </div>
+      {byCompany.size > 1 && (
+        <div className="flex flex-wrap gap-2 mb-3">
+          {[...byCompany.entries()].sort((x, y) => y[1] - x[1]).map(([c, v]) => (
+            <span key={c} className="px-2 py-1 rounded bg-zinc-800/70 text-xs text-zinc-300">
+              <span className="font-medium text-zinc-400 mr-1.5">{c}</span><Amount cents={row.sign * v} />
+            </span>
+          ))}
+        </div>
+      )}
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">Nessuna voce.</p>
       ) : (
@@ -98,6 +114,7 @@ function Detail({ d, rowKey, onClose }: { d: DecadeResult; rowKey: RowKey; onClo
             return (
               <div key={id} className="py-1.5 text-sm">
                 <div className="flex items-center gap-3">
+                  <span className="w-16 shrink-0"><span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-medium text-zinc-400">{codeOf(it.companyId) || '—'}</span></span>
                   <span className={`flex-1 ${it.replaced ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>{it.label}</span>
                   {it.date && <span className="text-xs text-zinc-500">{it.date.slice(8, 10)}/{it.date.slice(5, 7)}/{it.date.slice(0, 4)}</span>}
                   <span className="text-xs text-zinc-500 w-20">{SOURCE_LABEL[it.source]}</span>
@@ -296,12 +313,13 @@ function Grid({ result, window, compact, pctEditable, onPick, picked }: {
   )
 }
 
-export default function CruscottoTab({ result, window, subBlocks, subWindows, pctEditable }: {
+export default function CruscottoTab({ result, window, subBlocks, subWindows, pctEditable, companies }: {
   result: BlockResult
   window: WindowResult
   subBlocks: BlockResult[]
   subWindows: WindowResult[]
   pctEditable: boolean
+  companies: { id: string; code: string }[]
 }) {
   const [picked, setPicked] = useState<{ i: number; k: RowKey } | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>({})
@@ -324,7 +342,12 @@ export default function CruscottoTab({ result, window, subBlocks, subWindows, pc
         Clic su un importo per vedere le voci. I movimenti fra le società del gruppo non sono contati.
       </p>
 
-      {picked && <Detail d={result.decades[picked.i]} rowKey={picked.k} onClose={() => setPicked(null)} />}
+      {picked && (
+        <Detail
+          d={result.decades[picked.i]} rowKey={picked.k} onClose={() => setPicked(null)}
+          codeOf={id => companies.find(c => c.id === id)?.code ?? ''}
+        />
+      )}
 
       {subBlocks.map((b, bi) => {
         const last = subWindows[bi].decades[subWindows[bi].decades.length - 1]
