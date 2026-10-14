@@ -181,13 +181,17 @@ export async function updateUserRole(userId: string, role: 'strategic' | 'operat
 
 // ─── Tesoreria a decadi ───────────────────────────────────────────────────────
 
-export async function updateEstimate(id: string, monthlyCents: number, pct: [number, number, number], active: boolean, supplierId?: string | null) {
+export async function updateEstimate(
+  id: string, monthlyCents: number, pct: [number, number, number], active: boolean, supplierId?: string | null,
+  kind?: 'incasso' | 'muro' | 'automatico' | 'fornitori',
+) {
   if (monthlyCents < 0) return { error: 'Importo non valido' }
   if (pct.some(p => p < 0) || Math.abs(pct[0] + pct[1] + pct[2] - 100) > 0.1) return { error: 'Le tre percentuali devono fare 100' }
   const supabase = await createClient()
   const { error } = await supabase.from('treasury_estimates').update({
     monthly_cents: monthlyCents, pct_d1: pct[0], pct_d2: pct[1], pct_d3: pct[2], active, updated_at: new Date().toISOString(),
     ...(supplierId !== undefined ? { supplier_id: supplierId } : {}),
+    ...(kind ? { kind } : {}),
   }).eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/settings')

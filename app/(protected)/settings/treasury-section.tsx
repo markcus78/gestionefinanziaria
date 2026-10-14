@@ -54,6 +54,7 @@ function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: Supplie
   const [p2, setP2] = useState(String(Number(e.pct_d2)))
   const [p3, setP3] = useState(String(Number(e.pct_d3)))
   const [active, setActive] = useState(e.active)
+  const [kind, setKind] = useState<TreasuryEstimate['kind']>(e.kind)
   const [msg, setMsg] = useState<string | null>(null)
   const [pf, setPf] = useState<{ amount: string; date: string } | null>(null)
 
@@ -78,11 +79,11 @@ function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: Supplie
     const m = parseFloat(monthly.replace(',', '.'))
     const pct: [number, number, number] = [parseFloat(p1), parseFloat(p2), parseFloat(p3)]
     if (!Number.isFinite(m) || pct.some(x => !Number.isFinite(x))) { setMsg('Valori non validi'); return }
-    const sid = takesSupplier(e) ? supplierIdOf(supplier, suppliers) : undefined
+    const sid = takesSupplier({ kind, replaced_by: e.replaced_by }) ? supplierIdOf(supplier, suppliers) : undefined
     if (sid === 'invalid') { setMsg('Fornitore non in elenco: sceglilo fra quelli suggeriti'); return }
     setMsg(null)
     startTransition(async () => {
-      const res = await updateEstimate(e.id, Math.round(m * 100), pct, nextActive, sid)
+      const res = await updateEstimate(e.id, Math.round(m * 100), pct, nextActive, sid, kind)
       if ('error' in res) setMsg(String(res.error))
       else { setMsg('Salvato'); router.refresh() }
     })
@@ -95,11 +96,16 @@ function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: Supplie
         {e.label}
         {e.notes && <div className="text-[11px] text-zinc-500">{e.notes}</div>}
       </td>
-      <td className="px-3 py-2 text-xs text-zinc-400">{KIND_LABEL[e.kind]}</td>
       <td className="px-3 py-2">
-        {takesSupplier(e)
+        <select value={kind} onChange={ev => setKind(ev.target.value as TreasuryEstimate['kind'])} className={inputCls}
+          title="Si salva con «Salva» sulla riga">
+          {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+      </td>
+      <td className="px-3 py-2">
+        {takesSupplier({ kind, replaced_by: e.replaced_by })
           ? <SupplierInput value={supplier} onChange={setSupplier} suppliers={suppliers} listId={`sup-${e.id}`}
-              placeholder={e.kind === 'fornitori' ? 'vuoto = altri fornitori' : 'nessuno'} />
+              placeholder={kind === 'fornitori' ? 'vuoto = altri fornitori' : 'nessuno'} />
           : <span className="text-[11px] text-zinc-600">righe di Staff/Impegni</span>}
       </td>
       <td className="px-3 py-2 text-right"><input value={monthly} onChange={ev => setMonthly(ev.target.value)} className={`${inputCls} w-24 text-right`} /></td>
@@ -113,7 +119,7 @@ function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: Supplie
           <button onClick={() => { setActive(!active); save(!active) }} disabled={isPending} className="text-xs text-zinc-500 hover:text-zinc-300">
             {active ? 'Disattiva' : 'Attiva'}
           </button>
-          {e.supplier_id && e.kind !== 'incasso' && !pf && (
+          {e.supplier_id && kind !== 'incasso' && !pf && (
             <button onClick={() => setPf({ amount: '', date: new Date().toISOString().slice(0, 10) })} className="text-xs text-sky-400 hover:text-sky-300"
               title="Pagata su pro forma: la fattura non passerà dallo scadenzario">Pagata pro forma</button>
           )}
