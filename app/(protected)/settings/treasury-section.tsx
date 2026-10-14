@@ -3,11 +3,19 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
-import { updateEstimate, createEstimate, updateBacklogBefore, updateGroupThreshold } from './actions'
+import { updateEstimate, createEstimate, updateBacklogBefore, updateGroupThreshold, payProForma } from './actions'
 import type { Company, TreasuryEstimate } from '@/lib/types/database'
 
 const KIND_LABEL: Record<TreasuryEstimate['kind'], string> = {
   incasso: 'Incasso', muro: 'Muro (100%)', automatico: 'Automatico', fornitori: 'Fornitori',
+}
+
+// Come si divide il mese fra le decadi; per altre divisioni si scrivono le tre % sulla riga
+const SPLITS = {
+  terzi: { label: 'Un terzo per decade', pct: [33.34, 33.33, 33.33] as [number, number, number] },
+  d1: { label: 'Tutto nella 1ª decade (1-10)', pct: [100, 0, 0] as [number, number, number] },
+  d2: { label: 'Tutto nella 2ª decade (11-20)', pct: [0, 100, 0] as [number, number, number] },
+  d3: { label: 'Tutto nella 3ª decade (21-fine)', pct: [0, 0, 100] as [number, number, number] },
 }
 
 export type SupplierOption = { id: string; company_id: string; supplier_name: string }
@@ -47,6 +55,23 @@ function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: Supplie
   const [p3, setP3] = useState(String(Number(e.pct_d3)))
   const [active, setActive] = useState(e.active)
   const [msg, setMsg] = useState<string | null>(null)
+  const [pf, setPf] = useState<{ amount: string; date: string } | null>(null)
+
+  // Pro forma pagata: il fornitore fattura dopo e la contabilità chiude la fattura già pagata,
+  // quindi nello scadenzario non arriva mai. Si registra qui: impegno pagato che consuma la stima.
+  function savePf() {
+    if (!pf) return
+    const s = pf.amount.trim().replace(/\s/g, '')
+    const n = s.includes(',') ? parseFloat(s.replace(/\./g, '').replace(',', '.')) : parseFloat(s)
+    if (!Number.isFinite(n) || n <= 0) { setMsg('Importo non valido'); return }
+    if (!pf.date) { setMsg('Data obbligatoria'); return }
+    setMsg(null)
+    startTransition(async () => {
+      const res = await payProForma(e.id, Math.round(n * 100), pf.date)
+      if ('error' in res) setMsg(String(res.error))
+      else { setPf(null); setMsg('Pro forma registrata'); router.refresh() }
+    })
+  }
   const [isPending, startTransition] = useTransition()
 
   function save(nextActive = active) {
@@ -87,8 +112,21 @@ function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: Supplie
           <button onClick={() => { setActive(!active); save(!active) }} disabled={isPending} className="text-xs text-zinc-500 hover:text-zinc-300">
             {active ? 'Disattiva' : 'Attiva'}
           </button>
-          {msg && <span className={`text-xs ${msg === 'Salvato' ? 'text-emerald-400' : 'text-red-400'}`}>{msg}</span>}
+          {e.supplier_id && e.kind !== 'incasso' && !pf && (
+            <button onClick={() => setPf({ amount: '', date: new Date().toISOString().slice(0, 10) })} className="text-xs text-sky-400 hover:text-sky-300"
+              title="Pagata su pro forma: la fattura non passerà dallo scadenzario">Pagata pro forma</button>
+          )}
+          {msg && <span className={`text-xs ${msg === 'Salvato' || msg === 'Pro forma registrata' ? 'text-emerald-400' : 'text-red-400'}`}>{msg}</span>}
         </div>
+        {pf && (
+          <div className="flex items-center gap-2 justify-end mt-2">
+            <span className="text-[11px] text-zinc-500">Pro forma pagata:</span>
+            <input value={pf.amount} onChange={ev => setPf({ ...pf, amount: ev.target.value })} placeholder="€" className={`${inputCls} w-24 text-right`} />
+            <input type="date" value={pf.date} onChange={ev => setPf({ ...pf, date: ev.target.value })} className={inputCls} />
+            <button onClick={savePf} disabled={isPending} className="text-xs text-sky-400 hover:text-sky-300">Registra</button>
+            <button onClick={() => setPf(null)} className="text-xs text-zinc-500 hover:text-zinc-300">Annulla</button>
+          </div>
+        )}
       </td>
     </tr>
   )
@@ -101,7 +139,7 @@ function NewEstimate({ companyId, suppliers }: { companyId: string; suppliers: S
   const [supplier, setSupplier] = useState('')
   const [kind, setKind] = useState<TreasuryEstimate['kind']>('automatico')
   const [monthly, setMonthly] = useState('0')
-  const [split, setSplit] = useState<'terzi' | 'd2'>('terzi')
+  const [split, setSplit] = useState<keyof typeof SPLITS>('terzi')
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
@@ -116,7 +154,7 @@ function NewEstimate({ companyId, suppliers }: { companyId: string; suppliers: S
   function save() {
     const m = parseFloat(monthly.replace(',', '.'))
     if (!Number.isFinite(m)) { setError('Importo non valido'); return }
-    const pct: [number, number, number] = split === 'd2' ? [0, 100, 0] : [33.34, 33.33, 33.33]
+    const pct = SPLITS[split].pct
     const sid = kind === 'incasso' ? null : supplierIdOf(supplier, suppliers)
     if (sid === 'invalid') { setError('Fornitore non in elenco: sceglilo fra quelli suggeriti'); return }
     setError(null)
@@ -137,9 +175,8 @@ function NewEstimate({ companyId, suppliers }: { companyId: string; suppliers: S
         <SupplierInput value={supplier} onChange={setSupplier} suppliers={suppliers} listId={`sup-new-${companyId}`} placeholder="Fornitore (dall'elenco)" />
       )}
       <input value={monthly} onChange={e => setMonthly(e.target.value)} className={`${inputCls} w-24 text-right`} />
-      <select value={split} onChange={e => setSplit(e.target.value as 'terzi' | 'd2')} className={inputCls}>
-        <option value="terzi">Un terzo per decade</option>
-        <option value="d2">Tutto nella 2ª decade</option>
+      <select value={split} onChange={e => setSplit(e.target.value as keyof typeof SPLITS)} className={inputCls}>
+        {Object.entries(SPLITS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
       </select>
       <button onClick={save} disabled={isPending} className="px-3 py-1 text-xs rounded bg-indigo-700 text-zinc-100 hover:bg-indigo-600">Aggiungi</button>
       <button onClick={() => setOpen(false)} className="text-xs text-zinc-500 hover:text-zinc-300">Annulla</button>
@@ -182,17 +219,28 @@ export function EstimatesSection({
   estimates: TreasuryEstimate[]
   suppliers: SupplierOption[]
 }) {
+  const shown = companies.filter(c => !(c.treasury_block === 'WT_ARIES' && c.code !== 'WT' && !estimates.some(e => e.company_id === c.id)))
+  const [tab, setTab] = useState(shown[0]?.id ?? '')
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-1 w-fit">
+        {shown.map(c => (
+          <button key={c.id} onClick={() => setTab(c.id)}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === c.id ? 'bg-indigo-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}>
+            {c.code === 'WT' ? 'WT e Aries' : c.code}
+            <span className="ml-1.5 text-xs text-zinc-500">{estimates.filter(e => e.company_id === c.id && e.active).length}</span>
+          </button>
+        ))}
+      </div>
       <p className="text-sm text-zinc-400">
         Uscite e incassi stimati al mese, con la quota per ogni decade (1-10, 11-20, 21-fine mese).
         Le voci con un fornitore si riducono man mano che arrivano le sue fatture del mese (stima − arrivate);
-        quelle di tipo Fornitori senza fornitore valgono per tutti gli altri fornitori. Le voci «sostituibili»
+        quelle di tipo Fornitori senza fornitore valgono per tutti gli altri fornitori. Se un fornitore si paga su pro forma
+        (la fattura poi non passa dallo scadenzario), il pagamento si registra con «Pagata pro forma» e consuma la stima. Le voci «sostituibili»
         (personale, F24) si azzerano nel mese in cui arrivano le righe reali dallo Staff.
       </p>
-      {companies.map(c => {
+      {shown.filter(c => c.id === tab).map(c => {
         const list = estimates.filter(e => e.company_id === c.id)
-        if (list.length === 0 && c.treasury_block === 'WT_ARIES' && c.code !== 'WT') return null
         return (
           <div key={c.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-800 text-sm font-medium text-zinc-200">

@@ -144,6 +144,27 @@ export default async function TreasuryPage({
     }
     if (!data || data.length < 1000) break
   }
+  // …e gli impegni con fornitore (spese e pro forma pagate): «gli impegni collassano» nelle stime
+  {
+    const { data, error } = await supabase.from('payment_schedule')
+      .select('id, company_id, supplier_id, supplier_name, document_number, due_date, postponed_to, amount_cents, is_intercompany, supplier_registry(category, exclude_from_treasury, treasury_as_staff, treasury_installments_only)')
+      .eq('entry_type', 'commitment').eq('flow_type', 'out').neq('status', 'cancelled')
+      .not('supplier_id', 'is', null).or('commitment_type.is.null,commitment_type.eq.manual')
+      .gte('due_date', addDays(firstDay.slice(0, 8) + '01', -62)).lte('due_date', lastDay)
+    if (error) throw new Error(error.message)
+    for (const r of (data ?? []) as unknown as InvRow[]) {
+      const date = r.postponed_to ?? r.due_date
+      if (date < firstDay.slice(0, 8) + '01' || date > lastDay) continue
+      const reg = r.supplier_registry
+      invoices.push({
+        id: r.id, companyId: r.company_id, supplierId: r.supplier_id,
+        label: (r.supplier_name ?? '—') + (r.document_number?.startsWith('PF-') ? ' (pro forma)' : ' (impegno)'),
+        doc: null, date, cents: Math.abs(r.amount_cents),
+        generic: !r.is_intercompany && !reg?.exclude_from_treasury && !reg?.treasury_as_staff && !reg?.treasury_installments_only
+          && reg?.category !== 'stipendi' && reg?.category !== 'tributi_f24',
+      })
+    }
+  }
 
   const coffaFresh = snapshot
     && (Date.parse(today) - Date.parse(snapshot.snapshot_date)) / 86400000 <= COFFA_MAX_AGE_DAYS

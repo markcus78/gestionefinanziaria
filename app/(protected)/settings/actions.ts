@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { applyPayment } from '@/lib/payment-apply'
 
 // ─── Conti Bancari ────────────────────────────────────────────────────────────
 
@@ -233,6 +234,34 @@ export async function updateGroupThreshold(cents: number) {
   if (error) return { error: error.message }
   revalidatePath('/settings')
   revalidatePath('/stime')
+  revalidatePath('/treasury')
+  return { success: true }
+}
+
+// Pro forma pagata (regola di Marco, 14/10/2026): il fornitore fattura dopo il pagamento e la
+// contabilità chiude la fattura già pagata, quindi nello scadenzario non compare mai. Si registra
+// un impegno del fornitore della stima, subito pagato: esce dal saldo calcolato e consuma la stima.
+export async function payProForma(estimateId: string, cents: number, date: string) {
+  if (!(cents > 0)) return { error: 'Importo non valido' }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'Data non valida' }
+  const supabase = await createClient()
+  const { data: est, error: e1 } = await supabase.from('treasury_estimates')
+    .select('company_id, label, supplier_id, supplier_registry(supplier_name)').eq('id', estimateId).single()
+  if (e1 || !est) return { error: e1?.message ?? 'Stima non trovata' }
+  if (!est.supplier_id) return { error: 'La stima non ha un fornitore' }
+  const name = (est.supplier_registry as unknown as { supplier_name: string } | null)?.supplier_name ?? est.label
+  const { data: row, error: e2 } = await supabase.from('payment_schedule').insert({
+    company_id: est.company_id, import_batch_id: null, supplier_id: est.supplier_id, supplier_name: name,
+    account_description: `Pro forma pagata (stima «${est.label}»)`, due_date: date,
+    amount_cents: -cents, amount_in_cents: 0, amount_out_cents: cents, flow_type: 'out',
+    entry_type: 'commitment', commitment_type: 'manual', status: 'pending',
+    document_number: 'PF-' + crypto.randomUUID().slice(0, 8), is_intercompany: false,
+  }).select('id').single()
+  if (e2 || !row) return { error: e2?.message ?? 'Registrazione non riuscita' }
+  const res = await applyPayment(supabase, row.id, date, cents, 'Pro forma')
+  if ('error' in res) return { error: res.error }
+  revalidatePath('/stime')
+  revalidatePath('/impegni')
   revalidatePath('/treasury')
   return { success: true }
 }
