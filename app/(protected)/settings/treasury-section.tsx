@@ -219,7 +219,8 @@ export function EstimatesSection({
   estimates: TreasuryEstimate[]
   suppliers: SupplierOption[]
 }) {
-  const shown = companies.filter(c => !(c.treasury_block === 'WT_ARIES' && c.code !== 'WT' && !estimates.some(e => e.company_id === c.id)))
+  // una scheda per società: WT e Aries sono due società distinte, anche se in Tesoreria stanno nello stesso blocco
+  const shown = companies
   const [tab, setTab] = useState(shown[0]?.id ?? '')
   return (
     <div className="space-y-4">
@@ -227,7 +228,7 @@ export function EstimatesSection({
         {shown.map(c => (
           <button key={c.id} onClick={() => setTab(c.id)}
             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === c.id ? 'bg-indigo-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}>
-            {c.code === 'WT' ? 'WT e Aries' : c.code}
+            {c.code}
             <span className="ml-1.5 text-xs text-zinc-500">{estimates.filter(e => e.company_id === c.id && e.active).length}</span>
           </button>
         ))}
@@ -244,7 +245,7 @@ export function EstimatesSection({
         return (
           <div key={c.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-800 text-sm font-medium text-zinc-200">
-              {c.code === 'WT' ? 'WT e Aries' : c.code}
+              {c.name}
             </div>
             <table className="w-full">
               <thead>
