@@ -4,7 +4,7 @@ import { Landmark } from 'lucide-react'
 import TreasuryClient from './treasury-client'
 import {
   todayRome, buildDecades, computeBlock, sumBlocks, allocateWindow, suggestPct, groupBacklog, activeInstallments,
-  type BlockCode, type BlockResult, type Estimate, type OutRow, type WindowResult,
+  addDays, type BlockCode, type BlockResult, type Estimate, type OutRow, type WindowResult, type RealIncasso, type PaidMove,
   type BacklogItemRow, type BacklogInstallmentRow, type DecadeIdx, type Installment,
 } from '@/lib/decadi'
 import type { BankAccount } from '@/lib/types/database'
@@ -85,6 +85,36 @@ export default async function TreasuryPage({
     openRows.push(...((data ?? []) as unknown as OpenRow[]))
     if (!data || data.length < 1000) break
   }
+
+  // Incassi registrati da Orianna e pagamenti registrati dopo il saldo più vecchio
+  const minBalance = ((accounts ?? []) as BankAccount[]).map(a => a.balance_date).filter((d): d is string => !!d).sort()[0]
+    ?? addDays(firstDay, -30)
+  const [{ data: collRaw, error: collErr }, { data: paidRaw, error: paidErr }] = await Promise.all([
+    supabase.from('daily_collections')
+      .select('company_id, collection_date, gross_amount_cents, net_amount_cents, settlement_expected_date, settled_date, cash_channels(name)')
+      .gte('collection_date', addDays(minBalance < firstDay ? minBalance : firstDay, -40)),
+    supabase.from('payment_transactions')
+      .select('paid_date, amount_cents, payment_schedule!inner(company_id, supplier_name, flow_type)')
+      .gt('paid_date', minBalance).eq('payment_schedule.flow_type', 'out'),
+  ])
+  if (collErr) throw new Error(collErr.message)
+  if (paidErr) throw new Error(paidErr.message)
+  type CollRow = {
+    company_id: string; collection_date: string; gross_amount_cents: number; net_amount_cents: number | null
+    settlement_expected_date: string | null; settled_date: string | null; cash_channels: { name: string } | null
+  }
+  const realIncassi: RealIncasso[] = ((collRaw ?? []) as unknown as CollRow[]).map(c => ({
+    companyId: c.company_id,
+    channel: c.cash_channels?.name ?? '—',
+    saleDate: c.collection_date,
+    arrival: c.settlement_expected_date ?? c.settled_date ?? c.collection_date,
+    cents: c.net_amount_cents ?? c.gross_amount_cents,
+  }))
+  type PaidRow = { paid_date: string; amount_cents: number; payment_schedule: { company_id: string; supplier_name: string | null } }
+  const paidAfter: PaidMove[] = ((paidRaw ?? []) as unknown as PaidRow[]).map(p => ({
+    companyId: p.payment_schedule.company_id, label: p.payment_schedule.supplier_name ?? '—',
+    date: p.paid_date, cents: Math.abs(p.amount_cents),
+  }))
 
   const coffaFresh = snapshot
     && (Date.parse(today) - Date.parse(snapshot.snapshot_date)) / 86400000 <= COFFA_MAX_AGE_DAYS
@@ -176,7 +206,7 @@ export default async function TreasuryPage({
       thresholdCents: comps.reduce((s, c) => s + (c.minimum_cash_threshold_cents ?? 0), 0),
       today, backlogBefore,
       rows: rows.filter(r => ids.includes(r.companyId)),
-      estimates, overrides, realStaff, manualRevenue, coffa, installments,
+      estimates, overrides, realStaff, manualRevenue, coffa, installments, realIncassi, paidAfter,
     }, decades)
   })
   const creditors = groupBacklog(computeAll([]).flatMap(b => b.stockItems), backlogItems, backlogQuotes)

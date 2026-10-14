@@ -1,7 +1,7 @@
 // Prove del calcolo a decadi: node scripts/prove-decadi.ts
 import {
   allocateWindow, suggestPct, supplierKey, groupBacklog, activeInstallments, splitPlan, backlogKey, f24Limit,
-  decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, computeBlock, sumBlocks,
+  decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, computeBlock, sumBlocks, uncoveredShare,
   type Estimate, type OutRow, type BlockInput,
 } from '../lib/decadi.ts'
 
@@ -277,6 +277,53 @@ eq('utenza del 20/09 al 12/10: ancora muro', routeOut({ ...base, supplierCategor
 eq('Acea: rata nel muro, anche se utenza', routeOut({ ...base, supplierCategory: 'utenze', installmentsOnly: true, isInstallment: true, dueDate: '2026-11-01' }, ctx), 'muro')
 eq('Acea: rata scaduta resta nel muro', routeOut({ ...base, supplierCategory: 'utenze', installmentsOnly: true, isInstallment: true }, { ...ctx, backlogBefore: '2026-10-01' }), 'muro')
 eq('Acea: bolletta singola non si conta', routeOut({ ...base, supplierCategory: 'utenze', installmentsOnly: true, isInstallment: false, dueDate: '2026-10-09' }, ctx), 'escluso')
+
+
+// ── Incassi registrati e pagamenti dopo il saldo (14/10) ──
+{
+  const d14 = buildDecades('2026-10-14', 9)
+  const coffaEst: Estimate = { id: 'C', companyId: 'AP', label: 'Coffa', kind: 'incasso', category: 'coffa', monthlyCents: 0, pct: [33.34, 33.33, 33.33], replacedBy: [] }
+  const barEst: Estimate = { id: 'B', companyId: 'HG', label: 'Bar', kind: 'incasso', category: 'bar', monthlyCents: 1000000, pct: [33.34, 33.33, 33.33], replacedBy: [] }
+  const days = new Map<string, number>()
+  for (let g = 13; g <= 31; g++) days.set(`2026-10-${String(g).padStart(2, '0')}`, 100000)  // 1.000 € al giorno
+  const inp = (extra: Partial<BlockInput>): BlockInput => ({
+    code: 'APPIAE', label: 'A', companyIds: ['AP'], balanceCents: 800000, creditLineCents: 0, balanceDate: '2026-10-12',
+    balanceDatesDiffer: false, thresholdCents: 0, today: '2026-10-14', backlogBefore: new Map(), rows: [],
+    estimates: [coffaEst], overrides: new Map(), realStaff: new Set(), manualRevenue: new Map(),
+    coffa: { days, months: new Map() }, ...extra,
+  })
+  const reali = [
+    { companyId: 'AP', channel: 'AlmaPay', saleDate: '2026-10-09', arrival: '2026-10-16', cents: 151956 },
+    { companyId: 'AP', channel: 'POS', saleDate: '2026-10-12', arrival: '2026-10-13', cents: 22275 },
+    { companyId: 'AP', channel: 'POS', saleDate: '2026-10-09', arrival: '2026-10-10', cents: 203643 },   // già nel saldo
+    { companyId: 'AP', channel: 'Contanti', saleDate: '2026-10-13', arrival: '2026-10-13', cents: 50000 }, // contanti: no
+    { companyId: 'AP', channel: 'AlmaPay', saleDate: '2026-10-13', arrival: '2026-10-20', cents: 960349 },
+  ]
+  const pagati = [
+    { companyId: 'AP', label: 'Fiorda', date: '2026-10-14', cents: 32250 },
+    { companyId: 'AP', label: 'Antonelli', date: '2026-10-09', cents: 36480 },  // prima del saldo: già fuori
+    { companyId: 'HG', label: 'altro blocco', date: '2026-10-14', cents: 99999 },
+  ]
+  const r = computeBlock(inp({ realIncassi: reali, paidAfter: pagati }), d14)
+  eq('saldo calcolato: + POS del 12 arrivato il 13, − Fiorda', r.balanceCents, 800000 + 22275 - 32250)
+  eq('saldo banca resta quello inserito', r.bankBalanceCents, 800000)
+  eq('ultimo incasso registrato', r.lastRegistered, '2026-10-13')
+  const reale = r.decades[0].rows.incassi.items.filter(i => i.source === 'reale').map(i => i.cents)
+  eq('Alma in arrivo il 16 e il 20 nella decade in corso', reale, [151956, 960349])
+  // Coffa: vendite fino al 13 registrate → giorni di Coffa solo dal 19 (13 + 5 + 1)
+  const coffaD2 = r.decades[0].rows.incassi.items.find(i => i.source === 'coffa')!.cents
+  eq('Coffa Ott D2 solo dal 19 al 20 (niente doppio conteggio)', coffaD2, 200000)
+  eq('Coffa Ott D3 intera', r.decades[1].rows.incassi.items.find(i => i.source === 'coffa')!.cents, 1100000)
+  const senza = computeBlock(inp({}), d14)
+  eq('senza registrazioni Coffa dal giorno dopo il saldo', senza.decades[0].rows.incassi.total, 800000)
+  // Stima del bar: i giorni già nel saldo o registrati non si stimano
+  eq('quota scoperta: saldo al 12 in D2 (11-20) → 8 giorni su 10', uncoveredShare(d14[0], '2026-10-12'), 0.8)
+  const hgIn = (extra: Partial<BlockInput>) => inp({ code: 'HANGAR', companyIds: ['HG'], estimates: [barEst], coffa: null, ...extra })
+  const bar0 = computeBlock(hgIn({}), d14).decades[0].rows.incassi.total
+  eq('bar D2 senza registrazioni: 8/10 della quota', bar0, Math.round(333300 * 0.8))
+  const bar1 = computeBlock(hgIn({ realIncassi: [{ companyId: 'HG', channel: 'POS', saleDate: '2026-10-15', arrival: '2026-10-16', cents: 50000 }] }), d14)
+  eq('bar D2 registrato fino al 15: stima 5/10 + incasso vero', bar1.decades[0].rows.incassi.total, Math.round(333300 * 0.5) + 50000)
+}
 
 console.log(`\n${ok} prove superate, ${ko} fallite`)
 if (ko) process.exit(1)

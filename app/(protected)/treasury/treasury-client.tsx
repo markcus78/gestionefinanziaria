@@ -121,6 +121,56 @@ function AccountRow({ account, companyCode, today }: { account: BankAccount; com
   )
 }
 
+const SALDO_VECCHIO_GIORNI = 5
+
+function ddmm(iso: string | null | undefined) {
+  return iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : '—'
+}
+
+// Dal saldo della banca al saldo da cui parte il cruscotto: incassi arrivati dopo, pagamenti registrati dopo
+function SaldoCalcolato({ result, subBlocks, codeOf }: { result: BlockResult; subBlocks: BlockResult[]; codeOf: (id: string) => string }) {
+  const [open, setOpen] = useState(false)
+  const inc = result.incassiDopoSaldo.reduce((s, i) => s + i.cents, 0)
+  const pag = result.pagatiDopoSaldo.reduce((s, i) => s + i.cents, 0)
+  const regs = (subBlocks.length ? subBlocks : [result]).filter(b => b.lastRegistered)
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex flex-wrap items-center gap-x-4 gap-y-1 text-left">
+        <span className="text-zinc-400">Saldo banca{result.balanceDate ? ` al ${ddmm(result.balanceDate)}` : ''} <span className="text-zinc-200 font-mono">{formatEur(result.bankBalanceCents)}</span></span>
+        <span className="text-emerald-400">+ incassi arrivati dopo <span className="font-mono">{formatEur(inc)}</span></span>
+        <span className="text-red-400">− pagamenti registrati dopo <span className="font-mono">{formatEur(pag)}</span></span>
+        <span className="text-zinc-300">= saldo calcolato <span className="font-mono font-semibold">{formatEur(result.balanceCents)}</span></span>
+        <span className="ml-auto text-xs text-zinc-500">
+          {regs.length ? `incassi registrati fino al ${regs.map(b => subBlocks.length ? `${ddmm(b.lastRegistered)} (${b.label})` : ddmm(b.lastRegistered)).join(', ')}` : 'nessun incasso registrato'}
+          {' '}· {open ? 'chiudi' : 'dettaglio'}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-3 grid md:grid-cols-2 gap-4 text-xs">
+          {[{ t: 'Incassi arrivati in banca dopo il saldo', l: result.incassiDopoSaldo }, { t: 'Pagamenti registrati dopo il saldo', l: result.pagatiDopoSaldo }].map(s => (
+            <div key={s.t}>
+              <div className="text-zinc-500 mb-1">{s.t}</div>
+              {s.l.length === 0 ? <div className="text-zinc-600">nessuno</div> : s.l.map((i, k) => (
+                <div key={k} className="flex gap-3">
+                  <span className="text-zinc-500 w-10">{codeOf(i.companyId ?? '')}</span>
+                  <span className="flex-1 text-zinc-300">{i.label}</span>
+                  <span className="text-zinc-500">{ddmm(i.date)}</span>
+                  <span className="w-24 text-right font-mono text-zinc-300">{formatEur(i.cents)}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+          <div className="md:col-span-2 text-zinc-500">
+            I contanti non contano: restano in cassa per le spese piccole; quando vengono versati, il saldo vero della banca li mostra.
+            Quando inserisci il saldo vero, confrontalo con il saldo calcolato: una differenza vuol dire un movimento non registrato
+            (commissioni, addebiti automatici, un pagamento non segnato o segnato con la data sbagliata).
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function TreasuryClient({ view, blocks, result, window, notices, subBlocks, subWindows, creditors, accounts, companies, today, coffa }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
@@ -135,7 +185,10 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
   }
 
   const codeOf = (companyId: string) => companies.find(c => c.id === companyId)?.code ?? ''
-  const staleAccounts = accounts.filter(a => !a.balance_date || a.balance_date < today)
+  // Gli incassi e i pagamenti registrati tengono il saldo aggiornato: quello della banca serve
+  // come controllo, e diventa vecchio solo dopo SALDO_VECCHIO_GIORNI
+  const staleLimit = new Date(Date.parse(today) - SALDO_VECCHIO_GIORNI * 86400000).toISOString().slice(0, 10)
+  const staleAccounts = accounts.filter(a => !a.balance_date || a.balance_date < staleLimit)
   // Il cambio di scheda resta nel browser: i dati sono già tutti qui, non serve tornare al server
   const [tab, setTab] = useState(sp.get('tab') ?? 'cruscotto')
   function showTab(id: string) {
@@ -170,12 +223,13 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
           ))}
         </div>
         <div className="ml-auto text-sm text-zinc-400">
-          Saldo di partenza:{' '}
+          Saldo calcolato a oggi:{' '}
           <span className={`font-semibold ${result.balanceCents >= 0 ? 'text-zinc-100' : 'text-red-400'}`}>{formatEur(result.balanceCents)}</span>
           {result.creditLineCents > 0 && <span className="ml-3">Fido: <span className="text-zinc-200">{formatEur(result.creditLineCents)}</span></span>}
-          <span className="ml-3 text-xs">al {formatDate(result.balanceDate)}</span>
         </div>
       </div>
+
+      <SaldoCalcolato result={result} subBlocks={subBlocks} codeOf={codeOf} />
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
         <table className="w-full">
@@ -204,8 +258,8 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
           <div className="flex items-start gap-2 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-sm">
             <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
             <div>
-              <span className="text-amber-400 font-medium">{staleAccounts.length} saldi non di oggi</span>
-              <span className="text-zinc-400 ml-2">il cruscotto parte da saldi vecchi: aggiornali qui sopra</span>
+              <span className="text-amber-400 font-medium">{staleAccounts.length} saldi vecchi di oltre {SALDO_VECCHIO_GIORNI} giorni</span>
+              <span className="text-zinc-400 ml-2">inserisci il saldo vero della banca qui sopra: serve a controllare che tutti i movimenti siano registrati</span>
             </div>
           </div>
         )}

@@ -41,6 +41,15 @@ function nextMonth(month: string): string {
   return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
 }
 
+export function addDays(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+}
+
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(to) - Date.parse(from)) / 86400000)
+}
+
 export function buildDecades(today: string, count: number): Decade[] {
   let { month, idx } = decadeOf(today)
   const out: Decade[] = []
@@ -176,7 +185,7 @@ export const OUT_ROWS: RowKey[] = ['muro', 'automatici', 'pianificati', 'f24', '
 export type CellItem = {
   label: string
   cents: number
-  source: 'stima' | 'coffa' | 'previsione' | 'scadenzario' | 'impegno' | 'staff' | 'piano'
+  source: 'stima' | 'coffa' | 'previsione' | 'scadenzario' | 'impegno' | 'staff' | 'piano' | 'reale' | 'pagato'
   date?: string
   rowId?: string
   companyId?: string
@@ -226,6 +235,37 @@ export type BlockInput = {
   manualRevenue: Map<string, number>          // `${companyId}|${month}` → cents (monthly_revenue_forecasts)
   coffa: { days: Map<string, number>; months: Map<string, number> } | null  // giorno/mese 'YYYY-MM' → cents
   installments?: Installment[]                // quote non pagate dei piani di rientro
+  realIncassi?: RealIncasso[]                 // incassi registrati da Orianna (sezione Incassi)
+  paidAfter?: PaidMove[]                      // pagamenti registrati in GF (payment_transactions)
+}
+
+// Incasso vero registrato in GF: il giorno della vendita e il giorno in cui i soldi arrivano in banca
+export type RealIncasso = {
+  companyId: string
+  channel: string
+  saleDate: string
+  arrival: string
+  cents: number
+}
+export type PaidMove = { companyId: string; label: string; date: string; cents: number }
+
+// Coffa mette in cassa una vendita 5 giorni dopo (crm-wt/src/lib/tesoreria.ts, GIORNI_INCASSO):
+// le vendite fino all'ultimo giorno registrato da Orianna sono già contate dalle sue righe,
+// quindi i giorni di Coffa fino a quel giorno + 5 non si contano (altrimenti doppio conteggio)
+export const COFFA_GIORNI_INCASSO = 5
+
+// I contanti restano in cassa per le spese piccole e vengono versati solo a volte:
+// non sono soldi in banca. Il versamento si vede come differenza al saldo successivo.
+export function isCashChannel(channel: string): boolean {
+  return channel.trim().toLowerCase() === 'contanti'
+}
+
+// Quanta parte di una decade resta da coprire con una stima, se i giorni fino a `covered`
+// sono già contati (dal saldo o dagli incassi registrati)
+export function uncoveredShare(d: { from: string; to: string }, covered: string | null): number {
+  if (!covered || covered < d.from) return 1
+  if (covered >= d.to) return 0
+  return daysBetween(covered, d.to) / (daysBetween(d.from, d.to) + 1)
 }
 
 export type Installment = {
@@ -241,7 +281,12 @@ export type Installment = {
 export type BlockResult = {
   code: BlockCode | 'GRUPPO'
   label: string
+  // saldo da cui parte il cruscotto: saldo della banca + incassi arrivati dopo − pagamenti registrati dopo
   balanceCents: number
+  bankBalanceCents: number
+  incassiDopoSaldo: CellItem[]
+  pagatiDopoSaldo: CellItem[]
+  lastRegistered: string | null   // ultimo giorno di incassi registrato (il più vecchio fra le società)
   creditLineCents: number
   balanceDate: string | null
   balanceDatesDiffer: boolean
@@ -280,6 +325,38 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     input.estimates.filter(e => e.kind === 'muro' && e.category === 'utenze').map(e => e.companyId),
   )
   const blockHasUtenze = input.companyIds.some(id => utenzeCompanies.has(id))
+  const D = input.balanceDate
+
+  // Incassi registrati: arrivati in banca dopo il saldo e fino a oggi → si sommano al saldo;
+  // in arrivo dopo oggi → nella loro decade. Quelli fino alla data del saldo sono già nel saldo.
+  const lastReg = new Map<string, string>()
+  const incassiDopoSaldo: CellItem[] = []
+  const futureReal: CellItem[] = []
+  for (const r of input.realIncassi ?? []) {
+    if (!input.companyIds.includes(r.companyId)) continue
+    if (r.saleDate > (lastReg.get(r.companyId) ?? '')) lastReg.set(r.companyId, r.saleDate)
+    if (isCashChannel(r.channel) || r.cents <= 0) continue
+    if (r.arrival <= input.today && (!D || r.arrival <= D)) continue
+    const item: CellItem = {
+      label: `${r.channel} del ${r.saleDate.slice(8, 10)}/${r.saleDate.slice(5, 7)}`, cents: r.cents, source: 'reale',
+      date: r.arrival, companyId: r.companyId,
+    }
+    if (r.arrival <= input.today) incassiDopoSaldo.push(item)
+    else futureReal.push(item)
+  }
+  const pagatiDopoSaldo: CellItem[] = D ? (input.paidAfter ?? [])
+    .filter(p => input.companyIds.includes(p.companyId) && p.date > D && p.cents > 0)
+    .map(p => ({ label: p.label, cents: p.cents, source: 'pagato' as const, date: p.date, companyId: p.companyId }))
+    : []
+  const startCents = input.balanceCents
+    + incassiDopoSaldo.reduce((s, i) => s + i.cents, 0)
+    - pagatiDopoSaldo.reduce((s, i) => s + i.cents, 0)
+  // giorni già contati per società: fino al saldo e fino all'ultimo incasso registrato
+  const coveredUntil = (companyId: string): string | null => {
+    const l = lastReg.get(companyId) ?? null
+    if (!D) return l
+    return l && l > D ? l : D
+  }
 
   // Uscite reali dallo scadenzario e dagli impegni
   for (const r of input.rows) {
@@ -326,9 +403,13 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     add(rows[b][key], item)
   }
 
+  for (const item of futureReal) {
+    const b = bucketOf(decades, item.date!)
+    if (b >= 0) add(rows[b].incassi, item)
+  }
+
   // Stime per decade
   const coffaFirstMonth = decades[0].month
-  const from = input.balanceDate && input.balanceDate >= decades[0].from ? input.balanceDate : null
   for (const est of input.estimates) {
     if (!input.companyIds.includes(est.companyId)) continue
     const months = [...new Set(decades.map(d => d.month))]
@@ -344,7 +425,11 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
       }
       if (est.category === 'coffa' && input.coffa) {
         if (month === coffaFirstMonth) {
-          // mese in corso: giorni di cassa previsti da Coffa dopo la data del saldo
+          // mese in corso: giorni di cassa previsti da Coffa dopo la data del saldo e dopo
+          // le vendite già registrate da Orianna (+ i giorni che Coffa aspetta per l'incasso)
+          const lr = lastReg.get(est.companyId)
+          const lrCut = lr ? addDays(lr, COFFA_GIORNI_INCASSO) : null
+          const from = D && lrCut ? (D > lrCut ? D : lrCut) : (D ?? lrCut)
           for (let i = 0; i < decades.length; i++) {
             const d = decades[i]
             if (d.month !== month) continue
@@ -371,7 +456,9 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
         const d = decades[i]
         if (d.month !== month) continue
         const ovr = input.overrides.get(`${est.id}|${month}|${d.idx}`)
-        const cents = replaced ? 0 : (ovr ?? quote[d.idx - 1])
+        // incassi stimati: i giorni già nel saldo o già registrati non si stimano più
+        const share = est.kind === 'incasso' ? uncoveredShare(d, coveredUntil(est.companyId)) : 1
+        const cents = replaced ? 0 : (ovr ?? Math.round(quote[d.idx - 1] * share))
         const key: RowKey = est.kind === 'incasso' ? 'incassi'
           : est.kind === 'muro' ? 'muro'
           : est.kind === 'automatico' ? 'automatici' : 'nuoveFatture'
@@ -425,7 +512,7 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
   }
 
   const out: DecadeResult[] = []
-  let inizio = input.balanceCents
+  let inizio = startCents
   for (let i = 0; i < decades.length; i++) {
     const r = rows[i]
     const uscite = OUT_ROWS.reduce((s, k) => s + r[k].total, 0)
@@ -442,7 +529,10 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
 
   return {
     code: input.code, label: input.label,
-    balanceCents: input.balanceCents, creditLineCents: input.creditLineCents,
+    balanceCents: startCents, bankBalanceCents: input.balanceCents, incassiDopoSaldo, pagatiDopoSaldo,
+    lastRegistered: input.companyIds.some(id => lastReg.has(id))
+      ? [...lastReg.values()].sort()[0] : null,
+    creditLineCents: input.creditLineCents,
     balanceDate: input.balanceDate, balanceDatesDiffer: input.balanceDatesDiffer,
     decades: out, stockCents, stockCount, stockItems, beyondCents, utenzeOver,
   }
@@ -475,6 +565,10 @@ export function sumBlocks(blocks: BlockResult[], groupThresholdCents: number, la
   const dates = blocks.map(b => b.balanceDate).filter((d): d is string => !!d)
   return {
     code: 'GRUPPO', label, balanceCents, creditLineCents,
+    bankBalanceCents: blocks.reduce((s, b) => s + b.bankBalanceCents, 0),
+    incassiDopoSaldo: blocks.flatMap(b => b.incassiDopoSaldo),
+    pagatiDopoSaldo: blocks.flatMap(b => b.pagatiDopoSaldo),
+    lastRegistered: null,
     balanceDate: dates.length ? dates.sort()[dates.length - 1] : null,
     balanceDatesDiffer: new Set(dates).size > 1 || blocks.some(b => b.balanceDatesDiffer),
     decades,

@@ -29,7 +29,7 @@ function formatPct(p: number) {
 }
 
 const SOURCE_LABEL: Record<CellItem['source'], string> = {
-  stima: 'stima', coffa: 'Coffa', previsione: 'previsione', scadenzario: 'scadenzario', impegno: 'impegno', staff: 'staff', piano: 'piano di rientro',
+  stima: 'stima', coffa: 'Coffa', previsione: 'previsione', scadenzario: 'scadenzario', impegno: 'impegno', staff: 'staff', piano: 'piano di rientro', reale: 'registrato', pagato: 'pagato',
 }
 
 function Amount({ cents, strong }: { cents: number; strong?: boolean }) {
