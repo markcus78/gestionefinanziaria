@@ -20,6 +20,8 @@ import {
   Flag,
   MessageSquare,
   ShieldCheck,
+  Calculator,
+  Inbox,
 } from 'lucide-react'
 import { signOut } from '@/app/login/actions'
 
@@ -30,6 +32,8 @@ const navItems = [
   { href: '/operations', label: 'Incassi', icon: TrendingUp },
   { href: '/schedule', label: 'Scadenzario', icon: Calendar },
   { href: '/impegni', label: 'Impegni', icon: ClipboardList },
+  { href: '/stime', label: 'Stime', icon: Calculator },
+  { href: '/richieste', label: 'Richieste', icon: Inbox },
   { href: '/payments', label: 'Pagamenti', icon: CreditCard },
   { href: '/staff', label: 'Staff', icon: Users },
   { href: '/treasury', label: 'Tesoreria', icon: Wallet },

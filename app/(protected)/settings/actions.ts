@@ -32,6 +32,7 @@ export async function updateBankBalance(_: unknown, formData: FormData) {
     .eq('id', formData.get('id') as string)
   if (error) return { error: error.message }
   revalidatePath('/settings')
+  revalidatePath('/stime')
   revalidatePath('/treasury')
   return { success: true }
 }
@@ -189,6 +190,7 @@ export async function updateEstimate(id: string, monthlyCents: number, pct: [num
   }).eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/settings')
+  revalidatePath('/stime')
   revalidatePath('/treasury')
   return { success: true }
 }
@@ -207,6 +209,7 @@ export async function createEstimate(input: {
   })
   if (error) return { error: error.message }
   revalidatePath('/settings')
+  revalidatePath('/stime')
   revalidatePath('/treasury')
   return { success: true }
 }
@@ -217,6 +220,7 @@ export async function updateBacklogBefore(companyId: string, date: string | null
   const { error } = await supabase.from('companies').update({ backlog_before: date }).eq('id', companyId)
   if (error) return { error: error.message }
   revalidatePath('/settings')
+  revalidatePath('/stime')
   revalidatePath('/treasury')
   return { success: true }
 }
@@ -228,6 +232,7 @@ export async function updateGroupThreshold(cents: number) {
     .update({ group_threshold_cents: cents, updated_at: new Date().toISOString() }).eq('id', true)
   if (error) return { error: error.message }
   revalidatePath('/settings')
+  revalidatePath('/stime')
   revalidatePath('/treasury')
   return { success: true }
 }

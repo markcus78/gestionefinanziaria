@@ -131,7 +131,7 @@ function Detail({ d, rowKey, onClose, codeOf }: { d: DecadeResult; rowKey: RowKe
                       <div className={`text-xs ${it.monthCoveredCents > it.monthEstimateCents ? 'text-amber-400' : 'text-zinc-400'}`}>
                         Mese: stima {formatEur(it.monthEstimateCents)} · arrivate {formatEur(it.monthCoveredCents)} · resta{' '}
                         {formatEur(Math.max(0, it.monthEstimateCents - it.monthCoveredCents))}
-                        {it.monthCoveredCents > it.monthEstimateCents && ' — le fatture superano la stima: alzala in Impostazioni → Tesoreria'}
+                        {it.monthCoveredCents > it.monthEstimateCents && ' — le fatture superano la stima: alzala in Stime'}
                       </div>
                     )}
                     {it.covered.length === 0

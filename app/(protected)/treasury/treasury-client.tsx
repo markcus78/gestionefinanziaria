@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { AlertTriangle, TrendingDown, Pencil, Check, X, Archive } from 'lucide-react'
+import { AlertTriangle, TrendingDown, Pencil, Check, X, Archive, Inbox } from 'lucide-react'
 import CruscottoTab from './cruscotto-tab'
 import FattureTab from './fatture-tab'
 import AvvisiTab from './avvisi-tab'
@@ -24,6 +24,7 @@ type Props = {
   companies: { id: string; code: string }[]
   today: string
   coffa: { date: string; fresh: boolean } | null
+  requests: { companyId: string; label: string; cents: number; date: string }[]
 }
 
 function formatEur(cents: number) {
@@ -171,7 +172,7 @@ function SaldoCalcolato({ result, subBlocks, codeOf }: { result: BlockResult; su
   )
 }
 
-export default function TreasuryClient({ view, blocks, result, window, notices, subBlocks, subWindows, creditors, accounts, companies, today, coffa }: Props) {
+export default function TreasuryClient({ view, blocks, result, window, notices, subBlocks, subWindows, creditors, accounts, companies, today, coffa, requests }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
 
@@ -290,6 +291,28 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
             </div>
           </div>
         )}
+        {requests.length > 0 && (() => {
+          // Le richieste non sono nella cassa: si mostra quanto peserebbero, decade per decade
+          const perDec = result.decades.map(d => ({
+            d, cents: requests.filter(r => (r.date < result.decades[0].decade.from ? d === result.decades[0] : r.date >= d.decade.from && r.date <= d.decade.to)).reduce((s, r) => s + r.cents, 0),
+          })).filter(x => x.cents > 0)
+          let cum = 0
+          return (
+            <div className="flex items-start gap-2 px-4 py-3 bg-sky-500/10 border border-sky-500/30 rounded-xl text-sm">
+              <Inbox className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
+              <div>
+                <span className="text-sky-400 font-medium">
+                  {requests.length} richieste in attesa · {formatEur(requests.reduce((s, r) => s + r.cents, 0))}
+                </span>
+                <span className="text-zinc-400 ml-2">non contate nella cassa; se approvate:</span>
+                <span className="text-zinc-300 ml-1">
+                  {perDec.map(x => { cum += x.cents; return `${x.d.decade.label} −${formatEur(x.cents)} (fine decade ${formatEur(x.d.fine - cum)})` }).join(' · ')}
+                </span>
+                <a href="/richieste" className="ml-2 text-indigo-400 hover:text-indigo-300">decidi</a>
+              </div>
+            </div>
+          )
+        })()}
         {result.estimateOver.length > 0 && (
           <div className="flex items-start gap-2 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-sm">
             <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
@@ -297,7 +320,7 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
               <span className="text-amber-400 font-medium">Fatture sopra la stima</span>
               <span className="text-zinc-400 ml-2">
                 {result.estimateOver.map(u => `${u.label} ${u.month.slice(5, 7)}/${u.month.slice(0, 4)}: arrivate ${formatEur(u.invoicesCents)} contro stima ${formatEur(u.estimateCents)}`).join(' · ')}
-                {' '}— alza la stima in Impostazioni → Tesoreria
+                {' '}— alza la stima nella sezione Stime
               </span>
             </div>
           </div>

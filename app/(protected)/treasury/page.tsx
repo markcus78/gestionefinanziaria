@@ -53,6 +53,7 @@ export default async function TreasuryPage({
     { data: noticesRaw },
     { data: backlogItemsRaw },
     { data: backlogQuotesRaw },
+    { data: requestsRaw },
   ] = await Promise.all([
     supabase.from('companies').select('id, code, name, minimum_cash_threshold_cents, treasury_block, backlog_before').eq('is_active', true).order('code'),
     supabase.from('bank_accounts').select('*').eq('is_active', true).order('company_id'),
@@ -69,6 +70,7 @@ export default async function TreasuryPage({
     supabase.from('supplier_notices').select('supplier_key, display_name, notified, notified_at'),
     supabase.from('backlog_items').select('id, company_id, creditor_key, decision, agreed_cents, notes'),
     supabase.from('backlog_installments').select('id, item_id, month, idx, amount_cents, paid_at'),
+    supabase.from('spend_requests').select('company_id, supplier_name, description, amount_cents, expected_date').eq('status', 'in_attesa'),
   ])
 
   // Uscite aperte: oltre 1000 righe, quindi a pagine
@@ -280,6 +282,9 @@ export default async function TreasuryPage({
         companies={allCompanies.map(c => ({ id: c.id, code: c.code }))}
         today={today}
         coffa={snapshot ? { date: snapshot.snapshot_date, fresh: !!coffaFresh } : null}
+        requests={(requestsRaw ?? [])
+          .filter(r => view === 'GRUPPO' || blockOfCompany.get(r.company_id) === view)
+          .map(r => ({ companyId: r.company_id, label: `${r.supplier_name} – ${r.description}`, cents: r.amount_cents, date: r.expected_date }))}
       />
     </div>
   )

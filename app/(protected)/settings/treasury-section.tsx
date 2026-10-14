@@ -174,41 +174,22 @@ function BacklogRow({ company }: { company: Company }) {
   )
 }
 
-export function TreasurySection({
-  companies, estimates, suppliers, groupThresholdCents,
+// Le stime: una sezione a sé accanto a Scadenzario e Impegni (regola di Marco, 14/10/2026)
+export function EstimatesSection({
+  companies, estimates, suppliers,
 }: {
   companies: Company[]
   estimates: TreasuryEstimate[]
   suppliers: SupplierOption[]
-  groupThresholdCents: number
 }) {
-  const router = useRouter()
-  const [threshold, setThreshold] = useState((groupThresholdCents / 100).toFixed(0))
-  const [msg, setMsg] = useState<string | null>(null)
-  const [isPending, startTransition] = useTransition()
-
-  function saveThreshold() {
-    const n = parseFloat(threshold.replace(',', '.'))
-    if (!Number.isFinite(n)) { setMsg('Importo non valido'); return }
-    startTransition(async () => {
-      const res = await updateGroupThreshold(Math.round(n * 100))
-      if ('error' in res) setMsg(String(res.error))
-      else { setMsg('Salvato'); router.refresh() }
-    })
-  }
-
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-base font-medium text-zinc-100">Tesoreria a decadi</h2>
-        <p className="text-sm text-zinc-400 mt-0.5">
-          Uscite e incassi stimati al mese, con la quota per ogni decade (1-10, 11-20, 21-fine mese).
-          Le voci con un fornitore si riducono man mano che arrivano le sue fatture del mese (stima − arrivate);
-          quelle di tipo Fornitori senza fornitore valgono per tutti gli altri fornitori. Le voci «sostituibili»
-          (personale, F24) si azzerano nel mese in cui arrivano le righe reali dallo Staff.
-        </p>
-      </div>
-
+      <p className="text-sm text-zinc-400">
+        Uscite e incassi stimati al mese, con la quota per ogni decade (1-10, 11-20, 21-fine mese).
+        Le voci con un fornitore si riducono man mano che arrivano le sue fatture del mese (stima − arrivate);
+        quelle di tipo Fornitori senza fornitore valgono per tutti gli altri fornitori. Le voci «sostituibili»
+        (personale, F24) si azzerano nel mese in cui arrivano le righe reali dallo Staff.
+      </p>
       {companies.map(c => {
         const list = estimates.filter(e => e.company_id === c.id)
         if (list.length === 0 && c.treasury_block === 'WT_ARIES' && c.code !== 'WT') return null
@@ -239,6 +220,40 @@ export function TreasurySection({
           </div>
         )
       })}
+
+    </div>
+  )
+}
+
+export function TreasurySection({
+  companies, groupThresholdCents,
+}: {
+  companies: Company[]
+  groupThresholdCents: number
+}) {
+  const router = useRouter()
+  const [threshold, setThreshold] = useState((groupThresholdCents / 100).toFixed(0))
+  const [msg, setMsg] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
+
+  function saveThreshold() {
+    const n = parseFloat(threshold.replace(',', '.'))
+    if (!Number.isFinite(n)) { setMsg('Importo non valido'); return }
+    startTransition(async () => {
+      const res = await updateGroupThreshold(Math.round(n * 100))
+      if ('error' in res) setMsg(String(res.error))
+      else { setMsg('Salvato'); router.refresh() }
+    })
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-base font-medium text-zinc-100">Tesoreria a decadi</h2>
+        <p className="text-sm text-zinc-400 mt-0.5">
+          Le stime si gestiscono nella sezione <a href="/stime" className="text-indigo-400 hover:text-indigo-300">Stime</a>, accanto a Scadenzario e Impegni.
+        </p>
+      </div>
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-3">
         <p className="text-sm font-medium text-zinc-200">Data di taglio dell&apos;arretrato</p>
