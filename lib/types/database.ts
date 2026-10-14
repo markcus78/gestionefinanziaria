@@ -235,7 +235,7 @@ export type AccessLog = {
   created_at: string
 }
 
-export type CommitmentType = 'forecast' | 'salary_item' | 'collab_item' | 'tax_item' | 'manual' | 'extra_item' | 'piva_item'
+export type CommitmentType = 'forecast' | 'salary_item' | 'collab_item' | 'tax_item' | 'manual' | 'extra_item' | 'piva_item' | 'loan_item' | 'tributi_item'
 
 export type RecurringTemplate = {
   id: string
@@ -281,4 +281,5 @@ export type TreasuryEstimate = {
   active: boolean
   notes: string | null
   updated_at: string
+  supplier_id?: string | null
 }

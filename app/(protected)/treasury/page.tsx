@@ -4,14 +4,13 @@ import { Landmark } from 'lucide-react'
 import TreasuryClient from './treasury-client'
 import {
   todayRome, buildDecades, computeBlock, sumBlocks, allocateWindow, suggestPct, groupBacklog, activeInstallments,
-  addDays, type BlockCode, type BlockResult, type Estimate, type OutRow, type WindowResult, type RealIncasso, type PaidMove,
+  addDays, MURO_COMMITMENT_TYPES, type MonthInvoice, type BlockCode, type BlockResult, type Estimate, type OutRow, type WindowResult, type RealIncasso, type PaidMove,
   type BacklogItemRow, type BacklogInstallmentRow, type DecadeIdx, type Installment,
 } from '@/lib/decadi'
 import type { BankAccount } from '@/lib/types/database'
 
 const DECADI = 9
 const COFFA_MAX_AGE_DAYS = 3
-const STAFF_TYPES = ['salary_item', 'extra_item', 'collab_item', 'piva_item', 'tax_item']
 const BLOCKS: { code: BlockCode; label: string }[] = [
   { code: 'APPIAE', label: 'Appiae' },
   { code: 'HANGAR', label: 'Hangar' },
@@ -64,7 +63,7 @@ export default async function TreasuryPage({
     supabase.from('coffa_snapshots').select('snapshot_date, received_at').order('snapshot_date', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('payment_schedule')
       .select('company_id, commitment_type, due_date, postponed_to, document_number')
-      .eq('entry_type', 'commitment').in('commitment_type', STAFF_TYPES).neq('status', 'cancelled')
+      .eq('entry_type', 'commitment').in('commitment_type', MURO_COMMITMENT_TYPES).neq('status', 'cancelled')
       .gte('due_date', firstDay.slice(0, 8) + '01').lte('due_date', lastDay),
     supabase.from('treasury_window_pct').select('month, idx, pct').in('month', months),
     supabase.from('supplier_notices').select('supplier_key, display_name, notified, notified_at'),
@@ -116,6 +115,34 @@ export default async function TreasuryPage({
     date: p.paid_date, cents: Math.abs(p.amount_cents),
   }))
 
+  // Fatture dei mesi dell'orizzonte, anche pagate: consumano le stime (regola del 14/10)
+  type InvRow = {
+    id: string; company_id: string; supplier_id: string | null; supplier_name: string | null; document_number: string | null
+    due_date: string; postponed_to: string | null; amount_cents: number; is_intercompany: boolean | null
+    supplier_registry: { category: string | null; exclude_from_treasury: boolean; treasury_as_staff: boolean; treasury_installments_only: boolean } | null
+  }
+  const invoices: MonthInvoice[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from('payment_schedule')
+      .select('id, company_id, supplier_id, supplier_name, document_number, due_date, postponed_to, amount_cents, is_intercompany, supplier_registry(category, exclude_from_treasury, treasury_as_staff, treasury_installments_only)')
+      .eq('entry_type', 'accounting').eq('flow_type', 'out').neq('status', 'cancelled')
+      .gte('due_date', addDays(firstDay.slice(0, 8) + '01', -62)).lte('due_date', lastDay)
+      .order('id').range(from, from + 999)
+    if (error) throw new Error(error.message)
+    for (const r of (data ?? []) as unknown as InvRow[]) {
+      const date = r.postponed_to ?? r.due_date
+      if (date < firstDay.slice(0, 8) + '01' || date > lastDay) continue
+      const reg = r.supplier_registry
+      invoices.push({
+        id: r.id, companyId: r.company_id, supplierId: r.supplier_id, label: r.supplier_name ?? r.document_number ?? '—',
+        doc: r.document_number, date, cents: Math.abs(r.amount_cents),
+        generic: !r.is_intercompany && !reg?.exclude_from_treasury && !reg?.treasury_as_staff && !reg?.treasury_installments_only
+          && reg?.category !== 'stipendi' && reg?.category !== 'tributi_f24',
+      })
+    }
+    if (!data || data.length < 1000) break
+  }
+
   const coffaFresh = snapshot
     && (Date.parse(today) - Date.parse(snapshot.snapshot_date)) / 86400000 <= COFFA_MAX_AGE_DAYS
   let coffa: { days: Map<string, number>; months: Map<string, number> } | null = null
@@ -135,6 +162,7 @@ export default async function TreasuryPage({
     id: e.id, companyId: e.company_id, label: e.label, kind: e.kind, category: e.category,
     monthlyCents: e.monthly_cents, pct: [Number(e.pct_d1), Number(e.pct_d2), Number(e.pct_d3)],
     replacedBy: e.replaced_by ?? [],
+    supplierId: e.supplier_id ?? null,
   }))
   const overrides = new Map((overridesRaw ?? []).map(o => [`${o.estimate_id}|${o.month}|${o.idx}`, o.amount_cents]))
   const realStaff = new Set((staffRaw ?? [])
@@ -206,7 +234,7 @@ export default async function TreasuryPage({
       thresholdCents: comps.reduce((s, c) => s + (c.minimum_cash_threshold_cents ?? 0), 0),
       today, backlogBefore,
       rows: rows.filter(r => ids.includes(r.companyId)),
-      estimates, overrides, realStaff, manualRevenue, coffa, installments, realIncassi, paidAfter,
+      estimates, overrides, realStaff, manualRevenue, coffa, installments, realIncassi, paidAfter, invoices,
     }, decades)
   })
   const creditors = groupBacklog(computeAll([]).flatMap(b => b.stockItems), backlogItems, backlogQuotes)

@@ -179,12 +179,13 @@ export async function updateUserRole(userId: string, role: 'strategic' | 'operat
 
 // ─── Tesoreria a decadi ───────────────────────────────────────────────────────
 
-export async function updateEstimate(id: string, monthlyCents: number, pct: [number, number, number], active: boolean) {
+export async function updateEstimate(id: string, monthlyCents: number, pct: [number, number, number], active: boolean, supplierId?: string | null) {
   if (monthlyCents < 0) return { error: 'Importo non valido' }
   if (pct.some(p => p < 0) || Math.abs(pct[0] + pct[1] + pct[2] - 100) > 0.1) return { error: 'Le tre percentuali devono fare 100' }
   const supabase = await createClient()
   const { error } = await supabase.from('treasury_estimates').update({
     monthly_cents: monthlyCents, pct_d1: pct[0], pct_d2: pct[1], pct_d3: pct[2], active, updated_at: new Date().toISOString(),
+    ...(supplierId !== undefined ? { supplier_id: supplierId } : {}),
   }).eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/settings')
@@ -194,7 +195,7 @@ export async function updateEstimate(id: string, monthlyCents: number, pct: [num
 
 export async function createEstimate(input: {
   companyId: string; label: string; kind: 'incasso' | 'muro' | 'automatico' | 'fornitori'
-  monthlyCents: number; pct: [number, number, number]
+  monthlyCents: number; pct: [number, number, number]; supplierId?: string | null
 }) {
   if (!input.label.trim()) return { error: 'Il nome è obbligatorio' }
   if (Math.abs(input.pct[0] + input.pct[1] + input.pct[2] - 100) > 0.1) return { error: 'Le tre percentuali devono fare 100' }
@@ -202,6 +203,7 @@ export async function createEstimate(input: {
   const { error } = await supabase.from('treasury_estimates').insert({
     company_id: input.companyId, label: input.label.trim(), kind: input.kind, category: 'altro',
     monthly_cents: Math.max(0, input.monthlyCents), pct_d1: input.pct[0], pct_d2: input.pct[1], pct_d3: input.pct[2],
+    supplier_id: input.supplierId ?? null,
   })
   if (error) return { error: error.message }
   revalidatePath('/settings')

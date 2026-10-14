@@ -12,6 +12,9 @@ export type CommitmentInput = {
   amount_cents: number   // negativo per out, positivo per in
   flow_type: 'in' | 'out'
   notes: string | null
+  // spesa (null/manual), rata di finanziamento, tasse e tributi: queste due non passano mai
+  // dallo scadenzario e in Tesoreria si pagano per intero (muro)
+  commitment_type?: 'manual' | 'loan_item' | 'tributi_item' | null
 }
 
 export type CommitmentResult = { error: string } | { ok: true }
@@ -40,10 +43,12 @@ export async function createCommitment(input: CommitmentInput): Promise<Commitme
     document_number: docNumber,
     is_intercompany: false,
     postpone_notes: input.notes,
+    commitment_type: input.commitment_type ?? null,
   })
 
   if (error) return { error: error.message }
   revalidatePath('/impegni')
+  revalidatePath('/treasury')
   return { ok: true }
 }
 
@@ -157,7 +162,7 @@ export async function createRecurringCommitments(
     amount_out_cents:   input.flow_type === 'out' ? Math.abs(input.amount_cents) : 0,
     flow_type:          input.flow_type,
     entry_type:         'commitment' as const,
-    commitment_type:    'manual'     as const,
+    commitment_type:    input.commitment_type ?? 'manual',
     status:             'pending'    as const,
     document_number:    `RIC-${seriesId}-${due_date.slice(0, 7)}`,
     is_intercompany:    false,

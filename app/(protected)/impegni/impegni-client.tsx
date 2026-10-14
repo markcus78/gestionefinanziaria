@@ -33,7 +33,16 @@ const COMMITMENT_TYPE_BADGE: Partial<Record<NonNullable<PaymentScheduleItem['com
   salary_item:  { label: 'Dipendente',   cls: 'bg-blue-500/20 text-blue-400' },
   collab_item:  { label: 'Collaboratore', cls: 'bg-purple-500/20 text-purple-400' },
   tax_item:     { label: 'F24',          cls: 'bg-orange-500/20 text-orange-400' },
+  piva_item:    { label: 'P.IVA',        cls: 'bg-purple-500/20 text-purple-400' },
+  loan_item:    { label: 'Finanziamento', cls: 'bg-teal-500/20 text-teal-400' },
+  tributi_item: { label: 'Tributi',      cls: 'bg-red-500/20 text-red-400' },
 }
+
+const KIND_OPTIONS: { value: 'manual' | 'loan_item' | 'tributi_item'; label: string; hint: string }[] = [
+  { value: 'manual',       label: 'Spesa verso un fornitore', hint: 'diventerà una fattura dello scadenzario' },
+  { value: 'loan_item',    label: 'Rata di finanziamento',    hint: 'mutui, prestiti bancari, soci o altri: non passa dallo scadenzario, si paga per intero' },
+  { value: 'tributi_item', label: 'Tasse e tributi',          hint: 'cartelle, rateizzazioni con l\'Agenzia delle Entrate: non passa dallo scadenzario, si paga per intero' },
+]
 
 const STATUS_BADGE: Record<PaymentStatus, { label: string; cls: string }> = {
   pending:   { label: 'Attivo',      cls: 'bg-amber-500/20 text-amber-400' },
@@ -111,9 +120,11 @@ type FormState = {
   is_recurring: boolean
   frequency: 'monthly' | 'quarterly' | 'annual'
   months_ahead: number
+  kind: 'manual' | 'loan_item' | 'tributi_item'
 }
 
 const EMPTY_FORM: FormState = {
+  kind: 'manual',
   company_id: '',
   supplier_name: '',
   account_description: '',
@@ -188,8 +199,8 @@ function CommitmentsSection({
     if (!form.due_date)      return setFormErr('Inserisci la data')
     const amountCents = parseCents(form.amount)
     if (amountCents <= 0)    return setFormErr('Inserisci un importo valido')
-    if (form.is_recurring && (form.months_ahead < 1 || form.months_ahead > 24))
-      return setFormErr('Mesi da generare: valore tra 1 e 24')
+    if (form.is_recurring && (form.months_ahead < 1 || form.months_ahead > 120))
+      return setFormErr('Rate da generare: valore tra 1 e 120')
 
     setSaving(true)
     const raw = form.flow_type === 'out' ? -amountCents : amountCents
@@ -201,6 +212,7 @@ function CommitmentsSection({
       amount_cents: raw,
       flow_type: form.flow_type,
       notes: form.notes || null,
+      commitment_type: form.kind,
     }
 
     if (form.is_recurring) {
@@ -305,6 +317,7 @@ function CommitmentsSection({
       is_recurring: false,
       frequency: 'monthly',
       months_ahead: 12,
+      kind: 'manual',
     })
     setEditErr('')
   }
@@ -628,6 +641,14 @@ function CommitmentsSection({
             </div>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
+                <label className="block text-xs text-zinc-400 mb-1">Tipo *</label>
+                <select value={form.kind} onChange={e => setForm(p => ({ ...p, kind: e.target.value as FormState['kind'] }))}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                  {KIND_OPTIONS.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
+                </select>
+                <p className="text-[11px] text-zinc-500 mt-1">{KIND_OPTIONS.find(k => k.value === form.kind)?.hint}</p>
+              </div>
+              <div>
                 <label className="block text-xs text-zinc-400 mb-1">Società *</label>
                 <select value={form.company_id} onChange={e => setForm(p => ({ ...p, company_id: e.target.value }))}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500">
@@ -706,7 +727,7 @@ function CommitmentsSection({
                     <div>
                       <label className="block text-xs text-zinc-400 mb-1">Per quanti mesi</label>
                       <input
-                        type="number" min="1" max="24" step="1"
+                        type="number" min="1" max="120" step="1"
                         value={form.months_ahead}
                         onChange={e => setForm(p => ({ ...p, months_ahead: parseInt(e.target.value) || 1 }))}
                         className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"

@@ -96,7 +96,7 @@ export type OutRow = {
   isIntercompany: boolean
 }
 
-export type Route = 'muro' | 'automatico' | 'pianificato' | 'f24' | 'fattura' | 'stock' | 'escluso' | 'coperta'
+export type Route = 'muro' | 'automatico' | 'pianificato' | 'f24' | 'fattura' | 'stock' | 'escluso'
 
 // F24 (regola di Marco, 12/10/2026): fino alla scadenza del 16 è muro. Scaduto, resta da
 // recuperare col ravvedimento fino alla fine del mese dopo la scadenza (riga a parte, si può
@@ -109,7 +109,11 @@ export function f24Phase(dueDate: string, today: string): 'muro' | 'f24' | 'stoc
   return today > f24Limit(dueDate) ? 'stock' : 'f24'
 }
 
-const STAFF_TYPES = new Set(['salary_item', 'extra_item', 'collab_item', 'piva_item', 'tax_item'])
+// Impegni che non passano mai dallo scadenzario e si pagano per intero (muro): personale, F24,
+// rate di finanziamenti (banche, soci, altri) e tasse e tributi (cartelle, rateizzazioni).
+// Una lista sola: la usano l'instradamento e la pagina (stime sostituite dalle righe vere).
+export const MURO_COMMITMENT_TYPES = ['salary_item', 'extra_item', 'collab_item', 'piva_item', 'tax_item', 'loan_item', 'tributi_item']
+const STAFF_TYPES = new Set(MURO_COMMITMENT_TYPES)
 
 export function effectiveDate(r: Pick<OutRow, 'dueDate' | 'postponedTo'>): string {
   return r.postponedTo ?? r.dueDate
@@ -117,7 +121,7 @@ export function effectiveDate(r: Pick<OutRow, 'dueDate' | 'postponedTo'>): strin
 
 export function routeOut(
   r: OutRow,
-  ctx: { today: string; backlogBefore: string | null; blockHasUtenzeEstimate: boolean },
+  ctx: { today: string; backlogBefore: string | null },
 ): Route {
   const e = effectiveDate(r)
   if (r.residualCents <= 0) return 'escluso'
@@ -136,11 +140,11 @@ export function routeOut(
 
   if (ctx.backlogBefore && e < ctx.backlogBefore) return 'stock'
   if (r.supplierCategory === 'utenze') {
-    if (!ctx.blockHasUtenzeEstimate) return 'muro'
-    // non scaduta: la paga la stima delle utenze; si tiene per confrontarla con la stima
-    if (e >= ctx.today) return 'coperta'
-    // scaduta da poco (fino alla fine del mese dopo, come gli F24): si paga adesso, nel muro;
-    // più vecchia: arretrato (regola di Marco, 12/10/2026, bolletta Forini del 3/10)
+    // le utenze si pagano per intero: la fattura vera conta nel muro e consuma la stima del suo
+    // fornitore (regola di Marco, 14/10/2026: «elimini la stima e metti la fattura»).
+    // Scaduta da poco (fino alla fine del mese dopo, come gli F24): ancora muro; più vecchia:
+    // arretrato (regola del 12/10, bolletta Forini del 3/10)
+    if (e >= ctx.today) return 'muro'
     return ctx.today > f24Limit(r.dueDate) ? 'stock' : 'muro'
   }
   if (r.supplierCategory === 'tributi_f24') {
@@ -166,6 +170,32 @@ export type Estimate = {
   monthlyCents: number
   pct: [number, number, number]
   replacedBy: string[]
+  supplierId?: string | null    // le fatture di questo fornitore consumano la stima
+}
+
+// Fattura dello scadenzario (anche già pagata) che può consumare una stima del suo mese
+export type MonthInvoice = {
+  id: string
+  companyId: string
+  supplierId: string | null
+  label: string
+  doc: string | null
+  date: string        // data effettiva (posticipo o scadenza)
+  cents: number       // importo intero della fattura
+  generic: boolean    // può consumare la stima «altri fornitori» (non esclusa, non infragruppo, non personale…)
+}
+
+// Quanto della stima di un mese resta, tolte le fatture vere già arrivate (minimo zero)
+export function consumeEstimate(
+  est: Pick<Estimate, 'companyId' | 'kind' | 'supplierId'>, month: string, invoices: MonthInvoice[], ownEstimate: Set<string>,
+): MonthInvoice[] | null {
+  if (est.kind === 'incasso') return null
+  if (!est.supplierId && est.kind !== 'fornitori') return null
+  return invoices.filter(iv => iv.companyId === est.companyId && iv.date.slice(0, 7) === month && (
+    est.supplierId
+      ? iv.supplierId === est.supplierId
+      : iv.generic && !(iv.supplierId && ownEstimate.has(iv.supplierId))
+  ))
 }
 
 // Quote intere in centesimi: le prime due arrotondate per difetto, il resto all'ultima,
@@ -198,10 +228,10 @@ export type CellItem = {
   month?: string
   idx?: DecadeIdx
   replaced?: boolean
-  // solo sulle stime delle utenze: le fatture vere già arrivate che la stima copre
+  // solo sulle stime che si consumano: le fatture vere già arrivate di questa decade
   covered?: CellItem[]
   monthCoveredCents?: number   // fatture vere di tutto il mese
-  monthEstimateCents?: number  // stima del mese
+  monthEstimateCents?: number  // stima del mese prima del consumo
 }
 export type Cell = { total: number; items: CellItem[] }
 
@@ -235,6 +265,7 @@ export type BlockInput = {
   manualRevenue: Map<string, number>          // `${companyId}|${month}` → cents (monthly_revenue_forecasts)
   coffa: { days: Map<string, number>; months: Map<string, number> } | null  // giorno/mese 'YYYY-MM' → cents
   installments?: Installment[]                // quote non pagate dei piani di rientro
+  invoices?: MonthInvoice[]                   // fatture dei mesi dell'orizzonte, anche pagate (consumano le stime)
   realIncassi?: RealIncasso[]                 // incassi registrati da Orianna (sezione Incassi)
   paidAfter?: PaidMove[]                      // pagamenti registrati in GF (payment_transactions)
 }
@@ -295,8 +326,8 @@ export type BlockResult = {
   stockCount: number
   stockItems: CellItem[]
   beyondCents: number
-  // mesi in cui le fatture vere delle utenze superano la stima
-  utenzeOver: { month: string; invoicesCents: number; estimateCents: number }[]
+  // stime superate dalle fatture vere del mese
+  estimateOver: { label: string; month: string; invoicesCents: number; estimateCents: number }[]
 }
 
 function emptyRows(): Record<RowKey, Cell> {
@@ -318,13 +349,9 @@ export const F24_CREDITOR = 'Erario – F24'
 export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult {
   const rows = decades.map(() => emptyRows())
   let stockCents = 0, stockCount = 0, beyondCents = 0
-  const covered: { b: number; item: CellItem }[] = []
   const stockItems: CellItem[] = []
-
-  const utenzeCompanies = new Set(
-    input.estimates.filter(e => e.kind === 'muro' && e.category === 'utenze').map(e => e.companyId),
-  )
-  const blockHasUtenze = input.companyIds.some(id => utenzeCompanies.has(id))
+  const estimateOver: BlockResult['estimateOver'] = []
+  const ownEstimate = new Set(input.estimates.map(e => e.supplierId).filter((x): x is string => !!x))
   const D = input.balanceDate
 
   // Incassi registrati: arrivati in banca dopo il saldo e fino a oggi → si sommano al saldo;
@@ -363,19 +390,8 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     const route = routeOut(r, {
       today: input.today,
       backlogBefore: input.backlogBefore.get(r.companyId) ?? null,
-      blockHasUtenzeEstimate: blockHasUtenze,
     })
     if (route === 'escluso') continue
-    if (route === 'coperta') {
-      const b = bucketOf(decades, effectiveDate(r))
-      if (b >= 0) covered.push({
-        b, item: {
-          label: r.supplierName ?? r.documentNumber ?? '—', cents: r.residualCents, source: 'scadenzario',
-          date: effectiveDate(r), rowId: r.id, companyId: r.companyId, method: r.paymentMethod, doc: r.documentNumber,
-        },
-      })
-      continue
-    }
     const e = effectiveDate(r)
     if (route === 'stock') {
       stockCents += r.residualCents; stockCount++
@@ -419,6 +435,15 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
 
       let monthly = est.monthlyCents
       let source: CellItem['source'] = 'stima'
+      // Stime che si consumano: le fatture vere del mese (anche pagate) tolgono la loro parte
+      const consumed = consumeEstimate(est, month, input.invoices ?? [], ownEstimate)
+      const consumedCents = consumed?.reduce((s, iv) => s + iv.cents, 0) ?? 0
+      if (consumed) {
+        monthly = Math.max(0, monthly - consumedCents)
+        if (consumedCents > est.monthlyCents) {
+          estimateOver.push({ label: est.label, month, invoicesCents: consumedCents, estimateCents: est.monthlyCents })
+        }
+      }
       const manual = input.manualRevenue.get(`${est.companyId}|${month}`)
       if (est.kind === 'incasso' && est.category !== 'coffa' && manual && manual > 0) {
         monthly = manual; source = 'previsione'
@@ -462,37 +487,20 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
         const key: RowKey = est.kind === 'incasso' ? 'incassi'
           : est.kind === 'muro' ? 'muro'
           : est.kind === 'automatico' ? 'automatici' : 'nuoveFatture'
-        if (cents === 0 && !replaced && ovr === undefined) continue
+        if (cents === 0 && !replaced && ovr === undefined && !consumed?.length) continue
         add(rows[i][key], {
           label: est.label + (replaced ? ' (sostituita dalle righe reali)' : ''),
           cents, source, estimateId: est.id, companyId: est.companyId, month, idx: d.idx, replaced,
+          ...(consumed ? {
+            covered: consumed.filter(iv => iv.date >= d.from && iv.date <= d.to).map(iv => ({
+              label: iv.label, cents: iv.cents, source: 'scadenzario' as const, date: iv.date, rowId: iv.id,
+              companyId: iv.companyId, doc: iv.doc,
+            })),
+            monthCoveredCents: consumedCents,
+            monthEstimateCents: est.monthlyCents,
+          } : {}),
         })
       }
-    }
-  }
-
-  // Utenze: le fatture vere coperte dalla stima si appendono alla quota della stima della stessa
-  // decade, e per ogni mese si confronta il totale delle fatture con la stima del mese
-  const utenzeIds = new Set(input.estimates
-    .filter(e => e.kind === 'muro' && e.category === 'utenze' && input.companyIds.includes(e.companyId)).map(e => e.id))
-  const utenzeOver: BlockResult['utenzeOver'] = []
-  if (utenzeIds.size) {
-    const months = [...new Set(decades.map(d => d.month))]
-    for (const month of months) {
-      const idxs = decades.map((d, i) => d.month === month ? i : -1).filter(i => i >= 0)
-      const estItems = idxs.flatMap(i => rows[i].muro.items.filter(it => it.estimateId && utenzeIds.has(it.estimateId)))
-      const monthEstimate = estItems.reduce((s, it) => s + it.cents, 0)
-      const monthInvoices = covered.filter(c => idxs.includes(c.b))
-      const monthCovered = monthInvoices.reduce((s, c) => s + c.item.cents, 0)
-      for (const i of idxs) {
-        const target = rows[i].muro.items.find(it => it.estimateId && utenzeIds.has(it.estimateId))
-        if (!target) continue
-        target.covered = monthInvoices.filter(c => c.b === i).map(c => c.item)
-        target.monthCoveredCents = monthCovered
-        target.monthEstimateCents = monthEstimate
-      }
-      // il mese in corso conta solo dalle decadi rimaste: la stima è parziale, il confronto pure
-      if (monthCovered > monthEstimate && estItems.length) utenzeOver.push({ month, invoicesCents: monthCovered, estimateCents: monthEstimate })
     }
   }
 
@@ -534,7 +542,7 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
       ? [...lastReg.values()].sort()[0] : null,
     creditLineCents: input.creditLineCents,
     balanceDate: input.balanceDate, balanceDatesDiffer: input.balanceDatesDiffer,
-    decades: out, stockCents, stockCount, stockItems, beyondCents, utenzeOver,
+    decades: out, stockCents, stockCount, stockItems, beyondCents, estimateOver,
   }
 }
 
@@ -576,7 +584,7 @@ export function sumBlocks(blocks: BlockResult[], groupThresholdCents: number, la
     stockCount: blocks.reduce((s, b) => s + b.stockCount, 0),
     stockItems: blocks.flatMap(b => b.stockItems),
     beyondCents: blocks.reduce((s, b) => s + b.beyondCents, 0),
-    utenzeOver: blocks.flatMap(b => b.utenzeOver),
+    estimateOver: blocks.flatMap(b => b.estimateOver),
   }
 }
 

@@ -10,10 +10,37 @@ const KIND_LABEL: Record<TreasuryEstimate['kind'], string> = {
   incasso: 'Incasso', muro: 'Muro (100%)', automatico: 'Automatico', fornitori: 'Fornitori',
 }
 
+export type SupplierOption = { id: string; company_id: string; supplier_name: string }
+
+// Le stime che hanno un fornitore: tutte le uscite tranne quelle che non passano dallo scadenzario
+// (personale, F24, tributi, finanziamenti: si chiudono con le righe vere dello Staff o degli Impegni)
+function takesSupplier(e: Pick<TreasuryEstimate, 'kind' | 'replaced_by'>) {
+  return e.kind !== 'incasso' && e.replaced_by.length === 0
+}
+
+// Fornitore scelto dall'elenco della società: si scrive e il browser suggerisce i nomi
+function SupplierInput({ value, onChange, suppliers, listId, placeholder }: {
+  value: string; onChange: (v: string) => void; suppliers: SupplierOption[]; listId: string; placeholder: string
+}) {
+  return (
+    <>
+      <input list={listId} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={`${inputCls} w-52`} />
+      <datalist id={listId}>{suppliers.map(s => <option key={s.id} value={s.supplier_name} />)}</datalist>
+    </>
+  )
+}
+
+function supplierIdOf(name: string, suppliers: SupplierOption[]): string | null | 'invalid' {
+  const n = name.trim()
+  if (!n) return null
+  return suppliers.find(s => s.supplier_name === n)?.id ?? 'invalid'
+}
+
 const inputCls = 'px-2 py-1 text-xs bg-zinc-800 border border-zinc-600 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500'
 
-function EstimateRow({ e }: { e: TreasuryEstimate }) {
+function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: SupplierOption[] }) {
   const router = useRouter()
+  const [supplier, setSupplier] = useState(suppliers.find(s => s.id === e.supplier_id)?.supplier_name ?? '')
   const [monthly, setMonthly] = useState((e.monthly_cents / 100).toFixed(0))
   const [p1, setP1] = useState(String(Number(e.pct_d1)))
   const [p2, setP2] = useState(String(Number(e.pct_d2)))
@@ -26,9 +53,11 @@ function EstimateRow({ e }: { e: TreasuryEstimate }) {
     const m = parseFloat(monthly.replace(',', '.'))
     const pct: [number, number, number] = [parseFloat(p1), parseFloat(p2), parseFloat(p3)]
     if (!Number.isFinite(m) || pct.some(x => !Number.isFinite(x))) { setMsg('Valori non validi'); return }
+    const sid = takesSupplier(e) ? supplierIdOf(supplier, suppliers) : undefined
+    if (sid === 'invalid') { setMsg('Fornitore non in elenco: sceglilo fra quelli suggeriti'); return }
     setMsg(null)
     startTransition(async () => {
-      const res = await updateEstimate(e.id, Math.round(m * 100), pct, nextActive)
+      const res = await updateEstimate(e.id, Math.round(m * 100), pct, nextActive, sid)
       if ('error' in res) setMsg(String(res.error))
       else { setMsg('Salvato'); router.refresh() }
     })
@@ -41,6 +70,12 @@ function EstimateRow({ e }: { e: TreasuryEstimate }) {
         {e.notes && <div className="text-[11px] text-zinc-500">{e.notes}</div>}
       </td>
       <td className="px-3 py-2 text-xs text-zinc-400">{KIND_LABEL[e.kind]}</td>
+      <td className="px-3 py-2">
+        {takesSupplier(e)
+          ? <SupplierInput value={supplier} onChange={setSupplier} suppliers={suppliers} listId={`sup-${e.id}`}
+              placeholder={e.kind === 'fornitori' ? 'vuoto = altri fornitori' : 'nessuno'} />
+          : <span className="text-[11px] text-zinc-600">righe di Staff/Impegni</span>}
+      </td>
       <td className="px-3 py-2 text-right"><input value={monthly} onChange={ev => setMonthly(ev.target.value)} className={`${inputCls} w-24 text-right`} /></td>
       <td className="px-3 py-2 text-right"><input value={p1} onChange={ev => setP1(ev.target.value)} className={`${inputCls} w-14 text-right`} /></td>
       <td className="px-3 py-2 text-right"><input value={p2} onChange={ev => setP2(ev.target.value)} className={`${inputCls} w-14 text-right`} /></td>
@@ -59,10 +94,11 @@ function EstimateRow({ e }: { e: TreasuryEstimate }) {
   )
 }
 
-function NewEstimate({ companyId }: { companyId: string }) {
+function NewEstimate({ companyId, suppliers }: { companyId: string; suppliers: SupplierOption[] }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [label, setLabel] = useState('')
+  const [supplier, setSupplier] = useState('')
   const [kind, setKind] = useState<TreasuryEstimate['kind']>('automatico')
   const [monthly, setMonthly] = useState('0')
   const [split, setSplit] = useState<'terzi' | 'd2'>('terzi')
@@ -81,9 +117,11 @@ function NewEstimate({ companyId }: { companyId: string }) {
     const m = parseFloat(monthly.replace(',', '.'))
     if (!Number.isFinite(m)) { setError('Importo non valido'); return }
     const pct: [number, number, number] = split === 'd2' ? [0, 100, 0] : [33.34, 33.33, 33.33]
+    const sid = kind === 'incasso' ? null : supplierIdOf(supplier, suppliers)
+    if (sid === 'invalid') { setError('Fornitore non in elenco: sceglilo fra quelli suggeriti'); return }
     setError(null)
     startTransition(async () => {
-      const res = await createEstimate({ companyId, label, kind, monthlyCents: Math.round(m * 100), pct })
+      const res = await createEstimate({ companyId, label: label || supplier, kind, monthlyCents: Math.round(m * 100), pct, supplierId: sid })
       if ('error' in res) setError(String(res.error))
       else { setOpen(false); setLabel(''); router.refresh() }
     })
@@ -95,6 +133,9 @@ function NewEstimate({ companyId }: { companyId: string }) {
       <select value={kind} onChange={e => setKind(e.target.value as TreasuryEstimate['kind'])} className={inputCls}>
         {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
       </select>
+      {kind !== 'incasso' && (
+        <SupplierInput value={supplier} onChange={setSupplier} suppliers={suppliers} listId={`sup-new-${companyId}`} placeholder="Fornitore (dall'elenco)" />
+      )}
       <input value={monthly} onChange={e => setMonthly(e.target.value)} className={`${inputCls} w-24 text-right`} />
       <select value={split} onChange={e => setSplit(e.target.value as 'terzi' | 'd2')} className={inputCls}>
         <option value="terzi">Un terzo per decade</option>
@@ -134,10 +175,11 @@ function BacklogRow({ company }: { company: Company }) {
 }
 
 export function TreasurySection({
-  companies, estimates, groupThresholdCents,
+  companies, estimates, suppliers, groupThresholdCents,
 }: {
   companies: Company[]
   estimates: TreasuryEstimate[]
+  suppliers: SupplierOption[]
   groupThresholdCents: number
 }) {
   const router = useRouter()
@@ -161,7 +203,9 @@ export function TreasurySection({
         <h2 className="text-base font-medium text-zinc-100">Tesoreria a decadi</h2>
         <p className="text-sm text-zinc-400 mt-0.5">
           Uscite e incassi stimati al mese, con la quota per ogni decade (1-10, 11-20, 21-fine mese).
-          Le voci con «sostituibile» si azzerano nel mese in cui arrivano le righe reali dallo Staff.
+          Le voci con un fornitore si riducono man mano che arrivano le sue fatture del mese (stima − arrivate);
+          quelle di tipo Fornitori senza fornitore valgono per tutti gli altri fornitori. Le voci «sostituibili»
+          (personale, F24) si azzerano nel mese in cui arrivano le righe reali dallo Staff.
         </p>
       </div>
 
@@ -178,6 +222,7 @@ export function TreasurySection({
                 <tr className="border-b border-zinc-800 text-[11px] text-zinc-500 uppercase tracking-wide">
                   <th className="text-left px-3 py-2 font-medium">Voce</th>
                   <th className="text-left px-3 py-2 font-medium">Tipo</th>
+                  <th className="text-left px-3 py-2 font-medium">Fornitore</th>
                   <th className="text-right px-3 py-2 font-medium">€ al mese</th>
                   <th className="text-right px-3 py-2 font-medium">% D1</th>
                   <th className="text-right px-3 py-2 font-medium">% D2</th>
@@ -187,10 +232,10 @@ export function TreasurySection({
                 </tr>
               </thead>
               <tbody>
-                {list.map(e => <EstimateRow key={e.id} e={e} />)}
+                {list.map(e => <EstimateRow key={e.id} e={e} suppliers={suppliers.filter(s => s.company_id === c.id)} />)}
               </tbody>
             </table>
-            <NewEstimate companyId={c.id} />
+            <NewEstimate companyId={c.id} suppliers={suppliers.filter(s => s.company_id === c.id)} />
           </div>
         )
       })}

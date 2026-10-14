@@ -40,14 +40,13 @@ const base: OutRow = {
   dueDate: '2026-09-01', postponedTo: null, residualCents: 50000, paymentMethod: 'Bonifico',
   entryType: 'accounting', commitmentType: 'manual', documentNumber: '1', isIntercompany: false,
 }
-const ctx = { today: '2026-10-08', backlogBefore: null, blockHasUtenzeEstimate: true }
+const ctx = { today: '2026-10-08', backlogBefore: null }
 eq('fattura scaduta', routeOut(base, ctx), 'fattura')
 eq('taglio arretrato', routeOut(base, { ...ctx, backlogBefore: '2026-10-01' }), 'stock')
 eq('RID futuro automatico', routeOut({ ...base, paymentMethod: 'RID', dueDate: '2026-10-30' }, ctx), 'automatico')
 eq('RID scaduto si decide', routeOut({ ...base, paymentMethod: 'RID' }, ctx), 'fattura')
-eq('utenza futura coperta dalla stima', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-10-20' }, ctx), 'coperta')
+eq('utenza futura nel muro (consuma la stima, regola del 14/10)', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-10-20' }, ctx), 'muro')
 eq('utenza scaduta da oltre un mese in arretrato', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-08-31' }, ctx), 'stock')
-eq('utenza senza stima nel muro', routeOut({ ...base, supplierCategory: 'utenze' }, { ...ctx, blockHasUtenzeEstimate: false }), 'muro')
 eq('budget BDG escluso', routeOut({ ...base, entryType: 'commitment', documentNumber: 'BDG-1', commitmentType: 'salary_item' }, ctx), 'escluso')
 eq('collaboratore nel muro', routeOut({ ...base, entryType: 'commitment', commitmentType: 'collab_item' }, ctx), 'muro')
 eq('impegno manuale pianificato', routeOut({ ...base, entryType: 'commitment', commitmentType: 'manual' }, ctx), 'pianificato')
@@ -250,22 +249,37 @@ eq('Casali Marco: anche scaduta prima del taglio', routeOut({ ...base, supplierA
 eq('Casali Marco escluso resta escluso', routeOut({ ...base, supplierAsStaff: true, excludeFromTreasury: true }, ctx), 'escluso')
 
 
-// ── Utenze: fatture coperte dalla stima e confronto (12/10) ──
-eq('utenza futura: coperta dalla stima', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-10-20' }, ctx), 'coperta')
-const ut = computeBlock(blockInput('WT_ARIES', ['WT'], {
-  estimates: [{ id: 'U', companyId: 'WT', label: 'Utenze', kind: 'muro', category: 'utenze', monthlyCents: 3000000, pct: [33.34, 33.33, 33.33], replacedBy: [] }],
-  rows: [
-    { ...base, id: 'u1', companyId: 'WT', supplierCategory: 'utenze', dueDate: '2026-11-05', residualCents: 2500000 },
-    { ...base, id: 'u2', companyId: 'WT', supplierCategory: 'utenze', dueDate: '2026-11-25', residualCents: 1000000 },
-    { ...base, id: 'u3', companyId: 'WT', supplierCategory: 'utenze', dueDate: '2026-12-05', residualCents: 500000 },
-  ],
-}), dec)
-const nov1 = ut.decades[3].rows.muro.items.find(i => i.estimateId === 'U')!
-eq('la fattura non si somma al muro', ut.decades[3].rows.muro.total, 1000200)
-eq('fattura di Nov D1 sotto la stima di Nov D1', nov1.covered!.map(c => c.rowId), ['u1'])
-eq('novembre: fatture 35.000 contro stima 30.000', [nov1.monthCoveredCents, nov1.monthEstimateCents], [3500000, 3000000])
-eq('avviso solo per novembre', ut.utenzeOver.map(u => u.month), ['2026-11'])
-
+// ── Stime che si consumano (regola di Marco, 14/10: prima era «coperta» per le utenze) ──
+// La fattura vera conta nel muro e la stima del suo fornitore si riduce: stima − arrivate, minimo zero
+{
+  const fv = (id: string, sup: string | null, date: string, cents: number, generic = true) =>
+    ({ id, companyId: 'WT', supplierId: sup, label: id, doc: null, date, cents, generic })
+  const ut = computeBlock(blockInput('WT_ARIES', ['WT'], {
+    estimates: [
+      { id: 'F', companyId: 'WT', label: 'Forini', kind: 'muro', category: 'utenze', monthlyCents: 3000000, pct: [33.34, 33.33, 33.33], replacedBy: [], supplierId: 'forini' },
+      { id: 'A', companyId: 'WT', label: 'Altri fornitori', kind: 'fornitori', category: 'nuove_fatture', monthlyCents: 1000000, pct: [33.34, 33.33, 33.33], replacedBy: [] },
+    ],
+    rows: [
+      { ...base, id: 'u1', companyId: 'WT', supplierId: 'forini', supplierCategory: 'utenze', dueDate: '2026-11-05', residualCents: 2500000 },
+    ],
+    invoices: [
+      fv('u1', 'forini', '2026-11-05', 2500000),
+      fv('u2', 'forini', '2026-11-25', 1000000),     // già pagata: consuma lo stesso
+      fv('u3', 'forini', '2026-12-05', 500000),
+      fv('x1', 'altro', '2026-11-12', 400000),
+      fv('x2', null, '2026-11-12', 100000, false),   // personale/esclusa: non consuma «altri»
+    ],
+  }), dec)
+  const nov1 = ut.decades[3].rows.muro.items.find(i => i.estimateId === 'F')!
+  eq('novembre: stima Forini 30.000 consumata da 35.000 → 0', ut.decades.slice(3, 6).map(d => d.rows.muro.items.find(i => i.estimateId === 'F')!.cents), [0, 0, 0])
+  eq('la fattura vera conta nel muro di Nov D1', ut.decades[3].rows.muro.total, 2500000)
+  eq('fattura di Nov D1 sotto la stima di Nov D1', nov1.covered!.map(c => c.rowId), ['u1'])
+  eq('novembre: arrivate 35.000 contro stima 30.000', [nov1.monthCoveredCents, nov1.monthEstimateCents], [3500000, 3000000])
+  eq('avviso solo per novembre', ut.estimateOver.map(u => u.month), ['2026-11'])
+  eq('dicembre: 30.000 − 5.000 = 25.000', ut.decades.slice(6, 9).reduce((s, d) => s + d.rows.muro.items.find(i => i.estimateId === 'F')!.cents, 0), 2500000)
+  eq('altri fornitori di novembre: 10.000 − 4.000 (non Forini, non personale)', ut.decades.slice(3, 6).reduce((s, d) => s + d.rows.nuoveFatture.total, 0), 600000)
+  eq('ottobre: nessuna fattura, stima intera', ut.decades[1].rows.nuoveFatture.total + ut.decades[2].rows.nuoveFatture.total, 666600)
+}
 
 // ── Utenze scadute da poco: nel muro (12/10) ──
 eq('Forini del 3/10 al 12/10: muro', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-10-03' }, { ...ctx, today: '2026-10-12' }), 'muro')
