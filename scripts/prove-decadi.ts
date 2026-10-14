@@ -1,7 +1,7 @@
 // Prove del calcolo a decadi: node scripts/prove-decadi.ts
 import {
   allocateWindow, suggestPct, supplierKey, groupBacklog, activeInstallments, splitPlan, backlogKey, f24Limit,
-  decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, computeBlock, sumBlocks, uncoveredShare,
+  decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, computeBlock, sumBlocks, uncoveredShare, consumeByDecade,
   type Estimate, type OutRow, type BlockInput,
 } from '../lib/decadi.ts'
 
@@ -338,6 +338,13 @@ eq('Acea: bolletta singola non si conta', routeOut({ ...base, supplierCategory: 
   const bar1 = computeBlock(hgIn({ realIncassi: [{ companyId: 'HG', channel: 'POS', saleDate: '2026-10-15', arrival: '2026-10-16', cents: 50000 }] }), d14)
   eq('bar D2 registrato fino al 15: stima 5/10 + incasso vero', bar1.decades[0].rows.incassi.total, Math.round(333300 * 0.5) + 50000)
 }
+
+
+// ── Consumo per decade (Marco, 14/10: prodotti piscina 50% D1 e 50% D3) ──
+eq('pro forma di D1 consuma solo D1', consumeByDecade([100000, 0, 100000], [100000, 0, 0]), [0, 0, 100000])
+eq('quello che avanza va alle decadi dopo', consumeByDecade([10002, 9999, 9999], [25000, 0, 10000]), [0, 0, 0])
+eq('poi a quelle prima, dalla più vicina', consumeByDecade([1000, 1000, 1000], [0, 0, 1500]), [1000, 500, 0])
+eq('altri fornitori: fattura di D2 da 4.000', consumeByDecade([3334, 3333, 3333], [0, 4000, 0]), [3334, 0, 2666])
 
 console.log(`\n${ok} prove superate, ${ko} fallite`)
 if (ko) process.exit(1)

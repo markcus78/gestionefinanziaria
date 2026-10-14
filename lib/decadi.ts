@@ -185,6 +185,26 @@ export type MonthInvoice = {
   generic: boolean    // può consumare la stima «altri fornitori» (non esclusa, non infragruppo, non personale…)
 }
 
+// Le fatture vere consumano la quota della LORO decade; quello che avanza consuma le decadi
+// dopo dello stesso mese, poi quelle prima. Esempio (Marco, 14/10): prodotti piscina 2.000 €,
+// 50% D1 e 50% D3; pagata la pro forma di D1, la quota di D3 resta intera.
+export function consumeByDecade(quotes: [number, number, number], used: [number, number, number]): [number, number, number] {
+  const r: [number, number, number] = [...quotes]
+  let carry = 0
+  for (let i = 0; i < 3; i++) {
+    const take = used[i] + carry
+    const u = Math.min(r[i], take)
+    r[i] -= u
+    carry = take - u
+  }
+  for (let i = 2; i >= 0 && carry > 0; i--) {
+    const u = Math.min(r[i], carry)
+    r[i] -= u
+    carry -= u
+  }
+  return r
+}
+
 // Quanto della stima di un mese resta, tolte le fatture vere già arrivate (minimo zero)
 export function consumeEstimate(
   est: Pick<Estimate, 'companyId' | 'kind' | 'supplierId'>, month: string, invoices: MonthInvoice[], ownEstimate: Set<string>,
@@ -439,7 +459,6 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
       const consumed = consumeEstimate(est, month, input.invoices ?? [], ownEstimate)
       const consumedCents = consumed?.reduce((s, iv) => s + iv.cents, 0) ?? 0
       if (consumed) {
-        monthly = Math.max(0, monthly - consumedCents)
         if (consumedCents > est.monthlyCents) {
           estimateOver.push({ label: est.label, month, invoicesCents: consumedCents, estimateCents: est.monthlyCents })
         }
@@ -476,7 +495,12 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
         if (m !== undefined) { monthly = m; source = 'coffa' }
       }
 
-      const quote = splitMonthly(monthly, est.pct)
+      let quote = splitMonthly(monthly, est.pct)
+      if (consumed?.length) {
+        const used: [number, number, number] = [0, 0, 0]
+        for (const iv of consumed) used[decadeOf(iv.date).idx - 1] += iv.cents
+        quote = consumeByDecade(quote, used)
+      }
       for (let i = 0; i < decades.length; i++) {
         const d = decades[i]
         if (d.month !== month) continue

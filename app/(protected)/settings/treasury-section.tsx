@@ -89,6 +89,7 @@ function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: Supplie
   }
 
   return (
+    <>
     <tr className={`border-b border-zinc-800/50 last:border-0 ${active ? '' : 'opacity-50'}`}>
       <td className="px-3 py-2 text-sm text-zinc-200">
         {e.label}
@@ -118,17 +119,25 @@ function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: Supplie
           )}
           {msg && <span className={`text-xs ${msg === 'Salvato' || msg === 'Pro forma registrata' ? 'text-emerald-400' : 'text-red-400'}`}>{msg}</span>}
         </div>
-        {pf && (
-          <div className="flex items-center gap-2 justify-end mt-2">
-            <span className="text-[11px] text-zinc-500">Pro forma pagata:</span>
-            <input value={pf.amount} onChange={ev => setPf({ ...pf, amount: ev.target.value })} placeholder="€" className={`${inputCls} w-24 text-right`} />
-            <input type="date" value={pf.date} onChange={ev => setPf({ ...pf, date: ev.target.value })} className={inputCls} />
-            <button onClick={savePf} disabled={isPending} className="text-xs text-sky-400 hover:text-sky-300">Registra</button>
-            <button onClick={() => setPf(null)} className="text-xs text-zinc-500 hover:text-zinc-300">Annulla</button>
-          </div>
-        )}
       </td>
     </tr>
+      {pf && (
+        <tr className="border-b border-zinc-800/50 bg-zinc-800/30">
+          <td colSpan={10} className="px-3 py-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-zinc-300">Pro forma pagata di «{e.label}»:</span>
+              <label className="text-[11px] text-zinc-500">Importo</label>
+              <input value={pf.amount} onChange={ev => setPf({ ...pf, amount: ev.target.value })} placeholder="€" className={`${inputCls} w-28 text-right`} />
+              <label className="text-[11px] text-zinc-500">Pagata il</label>
+              <input type="date" value={pf.date} onChange={ev => setPf({ ...pf, date: ev.target.value })} className={inputCls} />
+              <button onClick={savePf} disabled={isPending} className="px-3 py-1 text-xs rounded bg-sky-700 text-zinc-100 hover:bg-sky-600">Registra</button>
+              <button onClick={() => setPf(null)} className="text-xs text-zinc-500 hover:text-zinc-300">Annulla</button>
+              <span className="text-[11px] text-zinc-500">una registrazione per ogni pro forma pagata</span>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 
