@@ -78,12 +78,24 @@ export async function loadSignals(supabase: Supa, today: string): Promise<Signal
   const isSpesa = (t: string | null) => !t || t === 'manual'
 
   // 1. Spese senza fornitore
-  const senza: SignalItem[] = commitments
-    .filter(c => isSpesa(c.commitment_type) && !c.supplier_id && !c.new_supplier)
-    .map(c => ({
-      key: `senza-fornitore:${c.id}`, label: `${code.get(c.company_id)} · ${c.supplier_name ?? '—'}`,
-      detail: `${eur(c.amount_cents)} · ${it(c.postponed_to ?? c.due_date)}`, href: '/impegni?status=pending',
-    }))
+  // una riga per spesa: le rate di un impegno ricorrente (stessa società e stesso nome) stanno insieme
+  const senzaGroups = new Map<string, typeof commitments>()
+  for (const c of commitments.filter(c => isSpesa(c.commitment_type) && !c.supplier_id && !c.new_supplier)) {
+    const k = `${c.company_id}|${(c.supplier_name ?? '').trim().toLowerCase()}`
+    if (!senzaGroups.has(k)) senzaGroups.set(k, [])
+    senzaGroups.get(k)!.push(c)
+  }
+  const senza: SignalItem[] = [...senzaGroups.values()].map(g => {
+    const dates = g.map(c => c.postponed_to ?? c.due_date).sort()
+    return {
+      key: `senza-fornitore:${g.map(c => c.id).sort().join(',')}`,
+      label: `${code.get(g[0].company_id)} · ${g[0].supplier_name ?? '—'}`,
+      detail: g.length === 1
+        ? `${eur(g[0].amount_cents)} · ${it(dates[0])}`
+        : `${g.length} rate da ${eur(g[0].amount_cents)} · dal ${it(dates[0])} al ${it(dates[dates.length - 1])}`,
+      href: '/impegni?status=pending',
+    }
+  })
 
   // 2. Impegno e fattura dello stesso fornitore: probabile doppione
   const withSup = commitments.filter(c => isSpesa(c.commitment_type) && c.supplier_id)
