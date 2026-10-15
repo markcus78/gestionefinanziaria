@@ -98,11 +98,24 @@ function currentYearMonth() {
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
+type SupplierOpt = { id: string; company_id: string; supplier_name: string }
+
 type Props = {
   items: PaymentScheduleItem[]
   companies: Pick<Company, 'id' | 'code' | 'name'>[]
   templates: RecurringTemplate[]
   matchedIds: string[]
+  suppliers: SupplierOpt[]
+}
+
+// Fornitore obbligatorio sulle spese in uscita (Marco, 15/10/2026): si sceglie fra i fornitori dello
+// scadenzario della società, o si dichiara «fornitore nuovo» se non ha ancora fatture
+function needsSupplier(kind: string | null | undefined, flow: 'in' | 'out') {
+  return flow === 'out' && (!kind || kind === 'manual')
+}
+
+function SupplierList({ id, companyId, suppliers }: { id: string; companyId: string; suppliers: SupplierOpt[] }) {
+  return <datalist id={id}>{suppliers.filter(s => !companyId || s.company_id === companyId).map(s => <option key={s.id} value={s.supplier_name} />)}</datalist>
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -121,6 +134,7 @@ type FormState = {
   frequency: 'monthly' | 'quarterly' | 'annual'
   months_ahead: number
   kind: 'manual' | 'loan_item' | 'tributi_item'
+  new_supplier: boolean
 }
 
 const EMPTY_FORM: FormState = {
@@ -135,6 +149,7 @@ const EMPTY_FORM: FormState = {
   is_recurring: false,
   frequency: 'monthly',
   months_ahead: 12,
+  new_supplier: false,
 }
 
 type BatchRow = {
@@ -151,10 +166,12 @@ function CommitmentsSection({
   items,
   companies,
   matchedIds,
+  suppliers,
 }: {
   items: PaymentScheduleItem[]
   companies: Pick<Company, 'id' | 'code' | 'name'>[]
   matchedIds: string[]
+  suppliers: SupplierOpt[]
 }) {
   const matchedSet = new Set(matchedIds)
   const router    = useRouter()
@@ -213,6 +230,7 @@ function CommitmentsSection({
       flow_type: form.flow_type,
       notes: form.notes || null,
       commitment_type: form.kind,
+      new_supplier: form.new_supplier,
     }
 
     if (form.is_recurring) {
@@ -317,7 +335,8 @@ function CommitmentsSection({
       is_recurring: false,
       frequency: 'monthly',
       months_ahead: 12,
-      kind: 'manual',
+      kind: (item.commitment_type === 'loan_item' || item.commitment_type === 'tributi_item') ? item.commitment_type : 'manual',
+      new_supplier: item.new_supplier ?? false,
     })
     setEditErr('')
   }
@@ -336,6 +355,7 @@ function CommitmentsSection({
       amount_cents: raw,
       flow_type: editForm.flow_type,
       notes: editForm.notes || null,
+      new_supplier: editForm.new_supplier,
     })
     setEditSaving(false)
     if ('error' in res) return setEditErr(res.error)
@@ -508,9 +528,17 @@ function CommitmentsSection({
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex flex-col gap-1">
-                            <input type="text" value={editForm.supplier_name} placeholder="Fornitore*"
+                            <input type="text" value={editForm.supplier_name} placeholder="Fornitore*" list={`sup-edit-${item.id}`}
                               onChange={e => setEditForm(p => ({ ...p, supplier_name: e.target.value }))}
                               className="w-48 px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                            <SupplierList id={`sup-edit-${item.id}`} companyId={item.company_id} suppliers={suppliers} />
+                            {needsSupplier(editForm.kind, editForm.flow_type) && (
+                              <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                                <input type="checkbox" checked={editForm.new_supplier}
+                                  onChange={e => setEditForm(p => ({ ...p, new_supplier: e.target.checked }))} />
+                                fornitore nuovo (non ha ancora fatture)
+                              </label>
+                            )}
                             <input type="text" value={editForm.account_description} placeholder="Descrizione"
                               onChange={e => setEditForm(p => ({ ...p, account_description: e.target.value }))}
                               className="w-48 px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-xs text-zinc-400 focus:outline-none" />
@@ -564,6 +592,11 @@ function CommitmentsSection({
                             <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${COMMITMENT_TYPE_BADGE[item.commitment_type]!.cls}`}>
                               {COMMITMENT_TYPE_BADGE[item.commitment_type]!.label}
                             </span>
+                          )}
+                          {needsSupplier(item.commitment_type, item.flow_type) && !item.supplier_id && item.status !== 'cancelled' && item.status !== 'paid' && (
+                            item.new_supplier
+                              ? <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-sky-500/20 text-sky-400" title="Fornitore che non ha ancora fatture: va collegato quando arriva la prima">Fornitore nuovo</span>
+                              : <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-400" title="Senza fornitore la fattura non viene riconosciuta e si conta due volte: modifica e scegli il fornitore">Senza fornitore</span>
                           )}
                           {matchedSet.has(item.id) && (
                             <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-orange-500/20 text-orange-400">
@@ -658,9 +691,17 @@ function CommitmentsSection({
               </div>
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Fornitore / Controparte *</label>
-                <input type="text" value={form.supplier_name} placeholder="Es. Enel, Affitto ufficio..."
+                <input type="text" value={form.supplier_name} placeholder="Scegli dall'elenco dello scadenzario" list="sup-new"
                   onChange={e => setForm(p => ({ ...p, supplier_name: e.target.value }))}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                <SupplierList id="sup-new" companyId={form.company_id} suppliers={suppliers} />
+                {needsSupplier(form.kind, form.flow_type) && (
+                  <label className="flex items-center gap-1.5 mt-1 text-[11px] text-zinc-400">
+                    <input type="checkbox" checked={form.new_supplier}
+                      onChange={e => setForm(p => ({ ...p, new_supplier: e.target.checked }))} />
+                    Fornitore nuovo: non ha ancora fatture nello scadenzario
+                  </label>
+                )}
               </div>
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Descrizione aggiuntiva</label>
@@ -786,9 +827,10 @@ function CommitmentsSection({
                       </td>
                       <td className="px-2 py-1.5">
                         <div className="flex flex-col gap-1">
-                          <input type="text" value={row.supplier_name} placeholder="Fornitore*"
+                          <input type="text" value={row.supplier_name} placeholder="Fornitore*" list={`sup-b-${row.id}`}
                             onChange={e => updateBatchRow(row.id, 'supplier_name', e.target.value)}
                             className="w-44 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                          <SupplierList id={`sup-b-${row.id}`} companyId={row.company_id} suppliers={suppliers} />
                           <input type="text" value={row.account_description} placeholder="Descrizione"
                             onChange={e => updateBatchRow(row.id, 'account_description', e.target.value)}
                             className="w-44 px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-xs text-zinc-400 focus:outline-none" />
@@ -1531,7 +1573,7 @@ const TABS = [
   { value: 'reconciliation', label: 'Riconciliazione',  icon: Scale },
 ]
 
-export default function ImpegniClient({ items, companies, templates, matchedIds }: Props) {
+export default function ImpegniClient({ items, companies, templates, matchedIds, suppliers }: Props) {
   const router   = useRouter()
   const pathname = usePathname()
   const sp       = useSearchParams()
@@ -1572,7 +1614,7 @@ export default function ImpegniClient({ items, companies, templates, matchedIds 
       </div>
 
       {activeTab === 'commitments' && (
-        <CommitmentsSection items={items} companies={companies} matchedIds={matchedIds} />
+        <CommitmentsSection items={items} companies={companies} matchedIds={matchedIds} suppliers={suppliers} />
       )}
       {activeTab === 'templates' && (
         <TemplatesSection templates={templates} companies={companies} />

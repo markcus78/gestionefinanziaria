@@ -64,7 +64,7 @@ export default async function TreasuryPage({
     supabase.from('monthly_revenue_forecasts').select('company_id, year, month, forecast_gross_cents').is('channel_id', null),
     supabase.from('coffa_snapshots').select('snapshot_date, received_at').order('snapshot_date', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('payment_schedule')
-      .select('company_id, commitment_type, due_date, postponed_to, document_number')
+      .select('company_id, commitment_type, due_date, postponed_to, document_number, amount_cents')
       .eq('entry_type', 'commitment').in('commitment_type', MURO_COMMITMENT_TYPES).neq('status', 'cancelled')
       .gte('due_date', firstDay.slice(0, 8) + '01').lte('due_date', lastDay),
     supabase.from('treasury_window_pct').select('month, idx, pct').in('month', months),
@@ -189,9 +189,13 @@ export default async function TreasuryPage({
     supplierId: e.supplier_id ?? null,
   }))
   const overrides = new Map((overridesRaw ?? []).map(o => [`${o.estimate_id}|${o.month}|${o.idx}`, o.amount_cents]))
-  const realStaff = new Set((staffRaw ?? [])
-    .filter(r => !r.document_number?.startsWith('BDG-'))
-    .map(r => `${r.company_id}|${r.commitment_type}|${(r.postponed_to ?? r.due_date).slice(0, 7)}`))
+  const realStaff = new Map<string, { date: string; cents: number }[]>()
+  for (const r of (staffRaw ?? []).filter(r => !r.document_number?.startsWith('BDG-'))) {
+    const date = r.postponed_to ?? r.due_date
+    const k = `${r.company_id}|${r.commitment_type}|${date.slice(0, 7)}`
+    if (!realStaff.has(k)) realStaff.set(k, [])
+    realStaff.get(k)!.push({ date, cents: Math.abs(r.amount_cents) })
+  }
   const manualRevenue = new Map((forecastsRaw ?? []).map(f =>
     [`${f.company_id}|${f.year}-${String(f.month).padStart(2, '0')}`, f.forecast_gross_cents]))
   const backlogBefore = new Map(allCompanies.map(c => [c.id, c.backlog_before as string | null]))

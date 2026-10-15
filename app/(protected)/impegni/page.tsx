@@ -37,6 +37,7 @@ export default async function ImpegniPage({
     { data: companies },
     { data: templates },
     { data: accounting },
+    { data: suppliers },
   ] = await Promise.all([
     impQ,
     supabase.from('companies').select('id, code, name').eq('is_active', true).order('name'),
@@ -46,6 +47,7 @@ export default async function ImpegniPage({
       .select('company_id, amount_cents, due_date')
       .eq('entry_type', 'accounting')
       .not('status', 'in', '("cancelled","paid")'),
+    supabase.from('supplier_registry').select('id, company_id, supplier_name').order('supplier_name').limit(2000),
   ])
 
   // Calcola quali impegni attivi hanno un possibile match in accounting
@@ -67,6 +69,7 @@ export default async function ImpegniPage({
       companies={(companies ?? []) as Pick<Company, 'id' | 'code' | 'name'>[]}
       templates={(templates ?? []) as RecurringTemplate[]}
       matchedIds={matchedIds}
+      suppliers={suppliers ?? []}
     />
   )
 }

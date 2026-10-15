@@ -82,7 +82,7 @@ const estimates: Estimate[] = [
 const blockInput = (code: BlockInput['code'], ids: string[], extra: Partial<BlockInput> = {}): BlockInput => ({
   code, label: code, companyIds: ids, balanceCents: 0, creditLineCents: 0, balanceDate: '2026-10-08',
   balanceDatesDiffer: false, thresholdCents: 0, today: '2026-10-08', backlogBefore: new Map(), rows: [],
-  estimates, overrides: new Map(), realStaff: new Set(), manualRevenue: new Map(), coffa: null, ...extra,
+  estimates, overrides: new Map(), realStaff: new Map(), manualRevenue: new Map(), coffa: null, ...extra,
 })
 const ap = computeBlock(blockInput('APPIAE', ['AP']), dec)
 const hg = computeBlock(blockInput('HANGAR', ['HG']), dec)
@@ -106,10 +106,15 @@ const collabOtt: OutRow = {
   dueDate: '2026-10-10', residualCents: 977400, documentNumber: 'COL-2026-10-x',
 }
 const apReal = computeBlock(blockInput('APPIAE', ['AP'], {
-  rows: [collabOtt], realStaff: new Set(['AP|collab_item|2026-10']),
+  rows: [collabOtt], realStaff: new Map([['AP|collab_item|2026-10', [{ date: '2026-10-10', cents: 977400 }]]]),
 }), dec)
 near('collaboratori reali di ottobre in D1', eur(apReal.decades[0].rows.muro.total), 9774, 0)
-near('D2 ottobre: dipendenti stimati + F24, collaboratori sostituiti', eur(apReal.decades[1].rows.muro.total), 21200, 0)
+// Marco, 15/10: le righe vere consumano la stima per importo, non la azzerano
+near('D2 ottobre: dipendenti + F24 + resto dei collaboratori (33.800 - 9.774)', eur(apReal.decades[1].rows.muro.total), 11200 + 10000 + 24026, 0)
+const apTutti = computeBlock(blockInput('APPIAE', ['AP'], {
+  realStaff: new Map([['AP|collab_item|2026-10', [{ date: '2026-10-10', cents: 2000000 }]], ['AP|piva_item|2026-10', [{ date: '2026-10-31', cents: 1500000 }]]]),
+}), dec)
+near('collaboratori + P.IVA oltre la stima: stima coperta tutta', eur(apTutti.decades[1].rows.muro.total), 21200, 0)
 near('novembre non sostituito', eur(apReal.decades[4].rows.muro.total), 55000, 0)
 
 // ── Coffa: nel mese in corso contano solo i giorni dopo la data del saldo ──
@@ -304,7 +309,7 @@ eq('Acea: bolletta singola non si conta', routeOut({ ...base, supplierCategory: 
   const inp = (extra: Partial<BlockInput>): BlockInput => ({
     code: 'APPIAE', label: 'A', companyIds: ['AP'], balanceCents: 800000, creditLineCents: 0, balanceDate: '2026-10-12',
     balanceDatesDiffer: false, thresholdCents: 0, today: '2026-10-14', backlogBefore: new Map(), rows: [],
-    estimates: [coffaEst], overrides: new Map(), realStaff: new Set(), manualRevenue: new Map(),
+    estimates: [coffaEst], overrides: new Map(), realStaff: new Map(), manualRevenue: new Map(),
     coffa: { days, months: new Map() }, ...extra,
   })
   const reali = [

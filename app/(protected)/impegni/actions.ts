@@ -15,6 +15,30 @@ export type CommitmentInput = {
   // spesa (null/manual), rata di finanziamento, tasse e tributi: queste due non passano mai
   // dallo scadenzario e in Tesoreria si pagano per intero (muro)
   commitment_type?: 'manual' | 'loan_item' | 'tributi_item' | null
+  // fornitore che non ha ancora fatture nello scadenzario: l'impegno resta da collegare
+  new_supplier?: boolean
+}
+
+type Supa = Awaited<ReturnType<typeof createClient>>
+
+// Fornitore obbligatorio sulle spese in uscita (Marco, 15/10/2026): senza fornitore, quando la fattura
+// arriva dallo scadenzario il sistema non la riconosce e la spesa si conta due volte. Il nome si
+// sceglie fra i fornitori dello scadenzario di quella società; se non ha ancora fatture si dichiara
+// «fornitore nuovo». Rate di finanziamento e tributi non passano dallo scadenzario: niente obbligo.
+function needsSupplier(type: string | null | undefined, flow: 'in' | 'out') {
+  return flow === 'out' && (!type || type === 'manual')
+}
+
+async function resolveSupplier(supabase: Supa, input: Pick<CommitmentInput, 'company_id' | 'supplier_name' | 'flow_type' | 'commitment_type' | 'new_supplier'>):
+  Promise<{ supplier_id: string | null; new_supplier: boolean } | { error: string }> {
+  const name = input.supplier_name.trim()
+  const { data } = await supabase.from('supplier_registry').select('id, supplier_name')
+    .eq('company_id', input.company_id).ilike('supplier_name', name.replace(/[\\%_]/g, c => '\\' + c)).limit(1)
+  const found = data?.[0]?.id ?? null
+  if (found) return { supplier_id: found, new_supplier: false }
+  if (!needsSupplier(input.commitment_type, input.flow_type)) return { supplier_id: null, new_supplier: false }
+  if (input.new_supplier) return { supplier_id: null, new_supplier: true }
+  return { error: `«${name}» non è fra i fornitori dello scadenzario di questa società: sceglilo dall'elenco, oppure spunta «fornitore nuovo» se non ha ancora fatture` }
 }
 
 export type CommitmentResult = { error: string } | { ok: true }
@@ -24,6 +48,9 @@ export async function createCommitment(input: CommitmentInput): Promise<Commitme
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
+
+  const sup = await resolveSupplier(supabase, input)
+  if ('error' in sup) return sup
 
   // dedup_key sicuro per commitment manuali: uso document_number univoco
   const docNumber = 'IMP-' + crypto.randomUUID().slice(0, 8)
@@ -44,6 +71,7 @@ export async function createCommitment(input: CommitmentInput): Promise<Commitme
     is_intercompany: false,
     postpone_notes: input.notes,
     commitment_type: input.commitment_type ?? null,
+    ...sup,
   })
 
   if (error) return { error: error.message }
@@ -54,11 +82,20 @@ export async function createCommitment(input: CommitmentInput): Promise<Commitme
 
 export async function updateCommitment(
   id: string,
-  input: Pick<CommitmentInput, 'supplier_name' | 'account_description' | 'due_date' | 'amount_cents' | 'flow_type' | 'notes'>
+  input: Pick<CommitmentInput, 'supplier_name' | 'account_description' | 'due_date' | 'amount_cents' | 'flow_type' | 'notes' | 'new_supplier'>
 ): Promise<CommitmentResult> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
+
+  const { data: row, error: e0 } = await supabase.from('payment_schedule')
+    .select('company_id, commitment_type').eq('id', id).single()
+  if (e0 || !row) return { error: e0?.message ?? 'Impegno non trovato' }
+  const sup = await resolveSupplier(supabase, {
+    company_id: row.company_id, supplier_name: input.supplier_name, flow_type: input.flow_type,
+    commitment_type: row.commitment_type as CommitmentInput['commitment_type'], new_supplier: input.new_supplier,
+  })
+  if ('error' in sup) return sup
 
   const { error } = await supabase
     .from('payment_schedule')
@@ -71,6 +108,7 @@ export async function updateCommitment(
       amount_out_cents: input.flow_type === 'out' ? Math.abs(input.amount_cents) : 0,
       flow_type: input.flow_type,
       postpone_notes: input.notes,
+      ...sup,
     })
     .eq('id', id)
     .eq('entry_type', 'commitment')
@@ -137,6 +175,9 @@ export async function createRecurringCommitments(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
 
+  const sup = await resolveSupplier(supabase, input)
+  if ('error' in sup) return sup
+
   const step = frequency === 'monthly' ? 1 : frequency === 'quarterly' ? 3 : 12
   const seriesId = crypto.randomUUID().slice(0, 8)
 
@@ -167,6 +208,7 @@ export async function createRecurringCommitments(
     document_number:    `RIC-${seriesId}-${due_date.slice(0, 7)}`,
     is_intercompany:    false,
     postpone_notes:     input.notes,
+    ...sup,
   }))
 
   const { error } = await supabase.from('payment_schedule').insert(rows)
@@ -182,7 +224,12 @@ export async function createCommitmentBatch(items: CommitmentInput[]): Promise<C
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
 
-  const rows = items.map(input => ({
+  const sups = await Promise.all(items.map(i => resolveSupplier(supabase, i)))
+  const bad = items.filter((_, k) => 'error' in sups[k]).map(i => i.supplier_name)
+  if (bad.length) return { error: `Fornitori non trovati nello scadenzario: ${bad.join(', ')}. Sceglili dall'elenco; un fornitore nuovo si inserisce con «Nuovo impegno»` }
+
+  const rows = items.map((input, k) => ({
+    ...(sups[k] as { supplier_id: string | null; new_supplier: boolean }),
     company_id: input.company_id,
     import_batch_id: null,
     supplier_name: input.supplier_name,
