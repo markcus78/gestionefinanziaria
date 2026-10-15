@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Calculator,
   Inbox,
+  BookOpen,
 } from 'lucide-react'
 import { signOut } from '@/app/login/actions'
 
@@ -123,6 +124,19 @@ export function Sidebar({ unreadCount, isStrategic }: SidebarProps) {
 
       {/* Bottom */}
       <div className="px-2 py-3 border-t border-zinc-800 space-y-0.5">
+        {/* Guida — come funziona il sistema e cosa fare quando (Marco, 15/10/2026) */}
+        <Link
+          href="/guida"
+          className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+            pathname.startsWith('/guida')
+              ? 'bg-indigo-600 text-white'
+              : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+          }`}
+        >
+          <BookOpen className="w-4 h-4 shrink-0" />
+          Guida
+        </Link>
+
         {/* Bottone Segnala — visibile a tutti */}
         <button
           onClick={() => setModalOpen(true)}
