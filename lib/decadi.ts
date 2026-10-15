@@ -451,9 +451,9 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     if (!input.companyIds.includes(est.companyId)) continue
     const months = [...new Set(decades.map(d => d.month))]
     for (const month of months) {
-      // Personale e F24 (Marco, 15/10/2026): le righe vere consumano la stima per importo, decade per
-      // decade; la stima sparisce solo quando le righe vere la coprono tutta. Prima bastava una riga
-      // (il primo collaboratore caricato) per azzerarla, e il resto del mese non si vedeva più.
+      // Personale e F24 (Marco, 15/10/2026): la stima si carica prima; quando in Staff si caricano i
+      // file definitivi del mese (paghe, collaboratori e P.IVA di Athletis, F24) la stima si trasforma
+      // negli impegni del file e sparisce tutta, anche se il file dice meno della stima.
       const staffRows = est.kind === 'incasso' ? []
         : est.replacedBy.flatMap(t => input.realStaff.get(`${est.companyId}|${t}|${month}`) ?? [])
       const staffCents = staffRows.reduce((s, r) => s + r.cents, 0)
@@ -501,13 +501,7 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
       }
 
       let quote = splitMonthly(monthly, est.pct)
-      if (staffRows.length) {
-        const used: [number, number, number] = [0, 0, 0]
-        for (const r of staffRows) used[decadeOf(r.date).idx - 1] += r.cents
-        quote = consumeByDecade(quote, used)
-      }
-      const replaced = staffRows.length > 0 && quote.every(q => q === 0)
-      const partial = staffRows.length > 0 && !replaced
+      const replaced = staffRows.length > 0
       if (consumed?.length) {
         const used: [number, number, number] = [0, 0, 0]
         for (const iv of consumed) used[decadeOf(iv.date).idx - 1] += iv.cents
@@ -525,8 +519,8 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
           : est.kind === 'automatico' ? 'automatici' : 'nuoveFatture'
         if (cents === 0 && !replaced && ovr === undefined && !consumed?.length) continue
         add(rows[i][key], {
-          label: est.label + (replaced ? ' (sostituita dalle righe reali)'
-            : partial ? ` (resto: righe reali ${Math.round(staffCents / 100).toLocaleString('it-IT')} € su ${Math.round(monthly / 100).toLocaleString('it-IT')} €)` : ''),
+          label: est.label + (replaced
+            ? ` (diventata impegni: ${Math.round(staffCents / 100).toLocaleString('it-IT')} € dal file, stima ${Math.round(monthly / 100).toLocaleString('it-IT')} €)` : ''),
           cents, source, estimateId: est.id, companyId: est.companyId, month, idx: d.idx, replaced,
           ...(consumed ? {
             covered: consumed.filter(iv => iv.date >= d.from && iv.date <= d.to).map(iv => ({

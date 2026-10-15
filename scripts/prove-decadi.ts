@@ -109,8 +109,8 @@ const apReal = computeBlock(blockInput('APPIAE', ['AP'], {
   rows: [collabOtt], realStaff: new Map([['AP|collab_item|2026-10', [{ date: '2026-10-10', cents: 977400 }]]]),
 }), dec)
 near('collaboratori reali di ottobre in D1', eur(apReal.decades[0].rows.muro.total), 9774, 0)
-// Marco, 15/10: le righe vere consumano la stima per importo, non la azzerano
-near('D2 ottobre: dipendenti + F24 + resto dei collaboratori (33.800 - 9.774)', eur(apReal.decades[1].rows.muro.total), 11200 + 10000 + 24026, 0)
+// Marco, 15/10: caricato il file definitivo, la stima diventa gli impegni del file e sparisce tutta
+near('D2 ottobre: dipendenti stimati + F24, collaboratori diventati impegni', eur(apReal.decades[1].rows.muro.total), 21200, 0)
 const apTutti = computeBlock(blockInput('APPIAE', ['AP'], {
   realStaff: new Map([['AP|collab_item|2026-10', [{ date: '2026-10-10', cents: 2000000 }]], ['AP|piva_item|2026-10', [{ date: '2026-10-31', cents: 1500000 }]]]),
 }), dec)
