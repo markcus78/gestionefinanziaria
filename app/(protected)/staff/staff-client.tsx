@@ -30,6 +30,7 @@ type StaffItem = {
   paid_date: string | null
   reference_month: string | null
   payment_transactions: StaffTransaction[] | null
+  invoiced_doc?: string | null
 }
 
 /** Residuo da pagare: amount_cents è sempre il totale, paid_amount_cents la somma dei movimenti. */
@@ -396,6 +397,11 @@ function ItemsTable({ items, onPay, onReset, onDeleteTx, onEditTotal }: {
                       {item.supplier_name}
                       {txCount > 1 && <span className="px-1 rounded bg-zinc-700 text-zinc-400 text-[10px]">{txCount}</span>}
                     </button>
+                    {item.invoiced_doc && (
+                      <div className="ml-4 mt-0.5 text-[10px] text-sky-400" title="L'impegno è diventato fattura: in Tesoreria conta la fattura, si paga dallo Scadenzario">
+                        fattura arrivata: {item.invoiced_doc}
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right"><TotalCell item={item} onEditTotal={onEditTotal} /></td>
                   <td className="px-3 py-2 text-right tabular-nums text-emerald-400">

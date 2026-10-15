@@ -4,6 +4,7 @@ import {
   decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, computeBlock, sumBlocks, uncoveredShare, consumeByDecade,
   type Estimate, type OutRow, type BlockInput,
 } from '../lib/decadi.ts'
+import { matchPivaInvoices, personKey } from '../lib/piva-match.ts'
 
 let ok = 0, ko = 0
 function eq(name: string, got: unknown, want: unknown) {
@@ -345,6 +346,26 @@ eq('pro forma di D1 consuma solo D1', consumeByDecade([100000, 0, 100000], [1000
 eq('quello che avanza va alle decadi dopo', consumeByDecade([10002, 9999, 9999], [25000, 0, 10000]), [0, 0, 0])
 eq('poi a quelle prima, dalla più vicina', consumeByDecade([1000, 1000, 1000], [0, 0, 1500]), [1000, 500, 0])
 eq('altri fornitori: fattura di D2 da 4.000', consumeByDecade([3334, 3333, 3333], [0, 4000, 0]), [3334, 0, 2666])
+
+
+// ── Istruttori P.IVA: l'impegno si spegne quando arriva la fattura (Marco, 15/10) ──
+eq('nome e cognome in qualsiasi ordine', personKey('Monticone Fabrizio') === personKey('FABRIZIO MONTICONE'), true)
+{
+  const it = (id: string, name: string, m: string) => ({ id, companyId: 'A', name, refMonth: m })
+  const inv = (id: string, name: string, d: string) => ({ id, companyId: 'A', name, date: d, doc: id })
+  // Frolova: giugno fatturato il 3/7, luglio il 31/7, agosto il 17/8, settembre il 16/9
+  const fro = matchPivaInvoices(
+    [it('g', 'Frolova Ganna', '2026-06'), it('l', 'Frolova Ganna', '2026-07'), it('a', 'Frolova Ganna', '2026-08'), it('s', 'Frolova Ganna', '2026-09')],
+    [inv('F11', 'FROLOVA GANNA', '2026-05-22'), inv('F13', 'FROLOVA GANNA', '2026-07-03'), inv('F15', 'FROLOVA GANNA', '2026-07-31'),
+     inv('F17', 'FROLOVA GANNA', '2026-08-17'), inv('F18', 'FROLOVA GANNA', '2026-09-16')])
+  eq('Frolova: ogni mese la sua fattura', ['g', 'l', 'a', 's'].map(k => fro.get(k)?.id), ['F13', 'F15', 'F17', 'F18'])
+  // Marasco: settembre non ha ancora fatturato, l'impegno resta
+  const mar = matchPivaInvoices([it('ago', 'marasco francesco', '2026-08'), it('set', 'marasco francesco', '2026-09')],
+    [inv('37', 'MARASCO FRANCESCO', '2026-08-05')])
+  eq('Marasco: agosto fatturato, settembre ancora impegno', [mar.get('ago')?.id, mar.has('set')], ['37', false])
+  eq('altra società non abbina', matchPivaInvoices([it('x', 'Guaci Leonard', '2026-10')], [{ ...inv('38', 'GUACI LEONARD', '2026-10-07'), companyId: 'B' }]).size, 0)
+  eq('fattura troppo lontana non abbina', matchPivaInvoices([it('x', 'Guaci Leonard', '2026-06')], [inv('40', 'GUACI LEONARD', '2026-09-01')]).size, 0)
+}
 
 console.log(`\n${ok} prove superate, ${ko} fallite`)
 if (ko) process.exit(1)

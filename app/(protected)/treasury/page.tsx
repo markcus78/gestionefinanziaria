@@ -1,3 +1,4 @@
+import { loadPivaInvoiced } from '@/lib/piva-match'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Landmark } from 'lucide-react'
@@ -213,6 +214,10 @@ export default async function TreasuryPage({
     }
   }
 
+  // Istruttori P.IVA: l'impegno di Staff si spegne quando arriva la sua fattura (conta lei, regola del 15/10)
+  const pivaFrom = addDays(firstDay.slice(0, 8) + '01', -190).slice(0, 7)
+  const pivaInvoiced = await loadPivaInvoiced(supabase, pivaFrom)
+
   const rows: OutRow[] = openRows.map(r => ({
     id: r.id,
     companyId: r.company_id,
@@ -225,7 +230,8 @@ export default async function TreasuryPage({
     isInstallment: (docCount.get(`${r.company_id}|${r.supplier_id}|${r.document_number}`) ?? 0) > 1,
     dueDate: r.due_date,
     postponedTo: r.postponed_to,
-    residualCents: Math.max(0, Math.abs(r.amount_cents) - (r.paid_amount_cents ?? 0)),
+    residualCents: r.commitment_type === 'piva_item' && pivaInvoiced.has(r.id)
+      ? 0 : Math.max(0, Math.abs(r.amount_cents) - (r.paid_amount_cents ?? 0)),
     paymentMethod: r.payment_method,
     entryType: r.entry_type === 'commitment' ? 'commitment' : 'accounting',
     commitmentType: r.commitment_type,

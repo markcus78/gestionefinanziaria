@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Users } from 'lucide-react'
 import StaffClient from './staff-client'
+import { loadPivaInvoiced } from '@/lib/piva-match'
 
 export default async function StaffPage({
   searchParams,
@@ -35,6 +36,15 @@ export default async function StaffPage({
       .order('supplier_name'),
   ])
 
+  // Istruttori P.IVA con la fattura già arrivata dallo scadenzario: lì si paga la fattura
+  const [y, m] = selectedMonth.split('-').map(Number)
+  const from = new Date(Date.UTC(y, m - 7, 1)).toISOString().slice(0, 7)
+  const invoiced = await loadPivaInvoiced(supabase, from)
+  const shown = (items ?? []).map(i => {
+    const inv = i.commitment_type === 'piva_item' ? invoiced.get(i.id) : undefined
+    return { ...i, invoiced_doc: inv ? `${inv.doc ?? 'fattura'} del ${inv.date.split('-').reverse().join('/')}` : null }
+  })
+
   return (
     <div className="p-6 max-w-5xl">
       <div className="flex items-center gap-3 mb-6">
@@ -44,7 +54,7 @@ export default async function StaffPage({
 
       <StaffClient
         companies={companies ?? []}
-        items={items ?? []}
+        items={shown}
         selectedMonth={selectedMonth}
         initialCompany={sp.company ?? ''}
         today={today}

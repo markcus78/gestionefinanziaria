@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import type { CommitmentType } from '@/lib/types/database'
 import { applyPayment, revertPayments, removeTransaction, setTotalAmount } from '@/lib/payment-apply'
+import { personKey } from '@/lib/piva-match'
 
 function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40)
@@ -144,7 +145,21 @@ export async function importStaffItems(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autenticato' }
 
-  const prefix = TYPE_PREFIX[type]
+  // Il file dei collaboratori di Athletis contiene anche gli istruttori a partita IVA (Marco, 15/10/2026).
+  // Chi manda fatture alla società (fornitore trattato come personale nello scadenzario) o è già stato
+  // caricato come P.IVA è un P.IVA: diventa impegno P.IVA, che si spegne quando arriva la sua fattura.
+  let pivaKeys = new Set<string>()
+  if (type === 'collab_item') {
+    const [{ data: invs }, { data: prev }] = await Promise.all([
+      supabase.from('payment_schedule').select('supplier_name, supplier_registry!inner(treasury_as_staff)')
+        .eq('company_id', companyId).eq('entry_type', 'accounting').eq('supplier_registry.treasury_as_staff', true).limit(1000),
+      supabase.from('payment_schedule').select('supplier_name')
+        .eq('company_id', companyId).eq('commitment_type', 'piva_item').limit(1000),
+    ])
+    pivaKeys = new Set([...(invs ?? []), ...(prev ?? [])].map(r => personKey(r.supplier_name ?? '')).filter(Boolean))
+  }
+  const typeOf = (name: string) => (type === 'collab_item' && pivaKeys.has(personKey(name)) ? 'piva_item' : type)
+  const pivaFromCollab = items.filter(i => typeOf(i.name) === 'piva_item')
 
   // Delete existing actual rows (NOT budget rows)
   await supabase
@@ -154,6 +169,17 @@ export async function importStaffItems(
     .eq('commitment_type', type)
     .eq('reference_month', referenceMonth)
     .not('document_number', 'like', 'BDG-%')
+  // …e le righe P.IVA delle stesse persone, se il file si ricarica
+  if (pivaFromCollab.length) {
+    await supabase
+      .from('payment_schedule')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('commitment_type', 'piva_item')
+      .eq('reference_month', referenceMonth)
+      .eq('status', 'pending')
+      .in('document_number', pivaFromCollab.map(i => `${TYPE_PREFIX.piva_item}-${referenceMonth}-${slugify(i.name)}`))
+  }
 
   const rows = items.map(item => ({
     company_id: companyId,
@@ -166,9 +192,9 @@ export async function importStaffItems(
     amount_out_cents: item.amountCents,
     flow_type: 'out' as const,
     entry_type: 'commitment' as const,
-    commitment_type: type,
+    commitment_type: typeOf(item.name),
     status: 'pending' as const,
-    document_number: `${prefix}-${referenceMonth}-${slugify(item.name)}`,
+    document_number: `${TYPE_PREFIX[typeOf(item.name)]}-${referenceMonth}-${slugify(item.name)}`,
     is_intercompany: false,
     reference_month: referenceMonth,
   }))
@@ -177,7 +203,7 @@ export async function importStaffItems(
   if (error) return { error: error.message }
 
   revalidateAll()
-  return { success: true, count: rows.length }
+  return { success: true, count: rows.length, piva: pivaFromCollab.map(i => i.name) }
 }
 
 // ── Import F24 ──────────────────────────────────────────────────────────────
