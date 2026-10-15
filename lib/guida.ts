@@ -125,27 +125,36 @@ Chi ha bisogno di spendere inserisce una **richiesta**: società, fornitore, cos
 
 ## Cosa fare e quando
 
+Il calendario sta in un posto solo: la pagina **Lavoro quotidiano**, il pulsante giallo in cima al menu. Ogni giorno dice **cosa fare oggi** (con quello rimasto indietro) e **cosa non torna**. Qui sotto ci sono le regole generali; le date precise si leggono e si cambiano lì, in **Calendario dei caricamenti**.
+
 ### Ogni giorno
 
 1. **Impegni nuovi**: ogni spesa autorizzata (anche per email, anche con importo stimato) entra in Impegni **lo stesso giorno**, con il fornitore.
-2. **Richieste**: guardare quelle in attesa e portarle a chi decide.
-3. **Pagamenti fatti**: segnarli come pagati — gli impegni con **Segna come pagato** in Impegni, il personale con **Pagato** in Staff, le fatture in **Pagamenti** (Paga, pagamento parziale, posticipo).
+2. **Pagamenti fatti**: segnarli come pagati — gli impegni con **Segna come pagato** in Impegni, il personale con **Pagato** in Staff, le fatture in **Pagamenti** (Paga, pagamento parziale, posticipo).
+3. **Incassi** arrivati in banca, nel menu Incassi.
 4. **Pro forma pagate**: registrarle in Stime con **Pagata pro forma**.
+5. **Segnalazioni** del Lavoro quotidiano: guardarle e sistemarle.
 
-### A ogni decade (il 1, l'11 e il 21)
+### A ogni decade
 
 1. In Spring: **rigenerare i flussi finanziari**, poi esportare **EFLUSSISCADENZARIO** per Appiae, Hangar, Wellness Town e Aries.
 2. In Gestione Finanziaria: **Scadenzario → Importa XLS** per ognuna delle quattro società, controllando le righe sparite (pagate sì / no).
-3. In **Impegni**: sistemare i **Senza fornitore**, togliere i doppioni (**Già in scadenzario**), controllare le date in rosso.
-4. In **Staff**: controllare gli istruttori P.IVA con **fattura arrivata**.
+3. **Saldi delle banche** aggiornati in Tesoreria.
 
-> Oggi l'import si fa almeno a ogni decade e comunque prima di pianificare i pagamenti. Si sta decidendo se farlo ogni giorno o renderlo automatico (estrazione programmata da Spring).
+> Oggi l'import si fa a ogni decade e comunque prima di pianificare i pagamenti. Si sta decidendo se farlo ogni giorno o renderlo automatico (estrazione programmata da Spring).
 
 ### Ogni mese
 
-1. Appena arrivano: in **Staff** caricare **Distinta netti** (dipendenti), **Istruttori** (collaboratori e P.IVA, da Athletis) e gli **F24** di ogni società. Da quel momento la stima del personale diventa impegni.
-2. In **Stime**: controllare che gli importi siano ancora giusti (bollette, personale, F24) e che le stime superate dalle fatture vere siano segnalate.
-3. In **Impegni**: controllare le spese ricorrenti del mese (rate, assicurazioni, leasing).
+1. In **Staff**: **Distinta netti** (paghe), **Istruttori** (collaboratori e P.IVA, da Athletis) e **F24** di ogni società. Da quel momento la stima del personale diventa impegni.
+2. In **Stime**: controllare che gli importi siano ancora giusti (bollette, personale, F24).
+
+### Come funziona il Lavoro quotidiano
+
+- **Da fare oggi**: le attività del giorno e quelle rimaste indietro, con «in ritardo di N giorni». Si spunta il cerchio quando è fatta; se non è fatta, resta il giorno dopo.
+- **Sabato, domenica e festivi** (compresi Pasquetta e il 29 giugno) non si lavora: un'attività che cade lì si sposta al giorno lavorativo **dopo** (per esempio l'import) o **prima** (paghe e F24, che scadono il 16).
+- **Si chiudono da sole** l'import dello scadenzario, i saldi, le paghe, i collaboratori e gli F24: appena il caricamento c'è, il sistema lo vede.
+- Per l'import e i saldi conta solo l'ultima volta: se l'import dell'11 salta, quello del 21 lo copre.
+- **Segnalazioni**: doppioni fra impegni e fatture dello stesso fornitore, stessa fattura due volte, spese senza fornitore, impegni scaduti e non pagati, date impossibili, richieste da decidere. Quando una cosa è giusta così, **«visto»** la toglie; ricompare solo se cambia.
 
 ### Cose che non si usano più
 

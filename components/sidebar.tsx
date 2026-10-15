@@ -23,6 +23,7 @@ import {
   Calculator,
   Inbox,
   BookOpen,
+  Sun,
 } from 'lucide-react'
 import { signOut } from '@/app/login/actions'
 
@@ -45,9 +46,10 @@ const navItems = [
 type SidebarProps = {
   unreadCount?: number
   isStrategic?: boolean
+  todoCount?: number
 }
 
-export function Sidebar({ unreadCount, isStrategic }: SidebarProps) {
+export function Sidebar({ unreadCount, isStrategic, todoCount }: SidebarProps) {
   const pathname = usePathname()
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -68,6 +70,22 @@ export function Sidebar({ unreadCount, isStrategic }: SidebarProps) {
 
       {/* Nav principale */}
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+        {/* Lavoro quotidiano — in testa a tutto (Marco, 15/10/2026) */}
+        <Link
+          href="/oggi"
+          className={`flex items-center gap-3 px-3 py-2.5 mb-2 rounded-lg text-sm font-semibold transition-colors ${
+            pathname.startsWith('/oggi')
+              ? 'bg-amber-500 text-zinc-950'
+              : 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30'
+          }`}
+        >
+          <Sun className="w-4 h-4 shrink-0" />
+          <span className="flex-1">Lavoro quotidiano</span>
+          {todoCount != null && todoCount > 0 && (
+            <span className="bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">{todoCount}</span>
+          )}
+        </Link>
+
         {navItems.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href || pathname.startsWith(href + '/')
           return (
