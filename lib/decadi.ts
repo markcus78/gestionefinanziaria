@@ -235,7 +235,8 @@ export const OUT_ROWS: RowKey[] = ['muro', 'automatici', 'pianificati', 'f24', '
 export type CellItem = {
   label: string
   cents: number
-  source: 'stima' | 'coffa' | 'previsione' | 'scadenzario' | 'impegno' | 'staff' | 'piano' | 'reale' | 'pagato'
+  source: 'stima' | 'coffa' | 'previsione' | 'scadenzario' | 'impegno' | 'staff' | 'piano' | 'reale' | 'pagato' | 'provvista'
+  transferId?: string
   date?: string
   rowId?: string
   companyId?: string
@@ -289,6 +290,19 @@ export type BlockInput = {
   invoices?: MonthInvoice[]                   // fatture dei mesi dell'orizzonte, anche pagate (consumano le stime)
   realIncassi?: RealIncasso[]                 // incassi registrati da Orianna (sezione Incassi)
   paidAfter?: PaidMove[]                      // pagamenti registrati in GF (payment_transactions)
+  transfers?: Transfer[]                      // provviste fra società (Appiae → Hangar / Aries, e ritorno)
+}
+
+// Provvista infragruppo (Marco, 19/10/2026): Appiae dà cassa ad Hangar o ad Aries (che paga per WT),
+// o una società la restituisce. Per chi dà è un'uscita con la priorità del muro, per chi riceve un incasso.
+export type Transfer = {
+  id: string
+  fromCompanyId: string
+  toCompanyId: string
+  cents: number
+  dueDate: string          // entro quando serve
+  paidDate: string | null  // giroconto fatto
+  label: string            // «Provvista Appiae → Hangar»
 }
 
 // Incasso vero registrato in GF: il giorno della vendita e il giorno in cui i soldi arrivano in banca
@@ -398,6 +412,23 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     .filter(p => input.companyIds.includes(p.companyId) && p.date > D && p.cents > 0)
     .map(p => ({ label: p.label, cents: p.cents, source: 'pagato' as const, date: p.date, companyId: p.companyId }))
     : []
+  // Provviste già fatte dopo la data del saldo: per chi riceve sono incassi, per chi dà pagamenti
+  // (quelle fino alla data del saldo sono già nel saldo della banca)
+  const futureTransfers: { item: CellItem; out: boolean }[] = []
+  for (const t of input.transfers ?? []) {
+    const isFrom = input.companyIds.includes(t.fromCompanyId)
+    const isTo = input.companyIds.includes(t.toCompanyId)
+    if (isFrom === isTo) continue   // fuori dal blocco, o giro dentro lo stesso blocco
+    const item: CellItem = { label: t.label, cents: t.cents, source: 'provvista', date: t.paidDate ?? t.dueDate, companyId: isFrom ? t.fromCompanyId : t.toCompanyId, transferId: t.id }
+    if (t.paidDate) {
+      if (D && t.paidDate <= D) continue
+      if (t.paidDate > input.today) { futureTransfers.push({ item, out: isFrom }); continue }
+      if (isFrom) pagatiDopoSaldo.push({ ...item, source: 'pagato' })
+      else incassiDopoSaldo.push(item)
+    } else {
+      futureTransfers.push({ item, out: isFrom })
+    }
+  }
   const startCents = input.balanceCents
     + incassiDopoSaldo.reduce((s, i) => s + i.cents, 0)
     - pagatiDopoSaldo.reduce((s, i) => s + i.cents, 0)
@@ -432,7 +463,7 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
       : route === 'muro' || route === 'f24' ? 'staff' : 'impegno'
     const item: CellItem = {
       label, cents: r.residualCents, source, date: e, rowId: r.id, companyId: r.companyId, method: r.paymentMethod,
-      doc: r.documentNumber,
+      doc: r.documentNumber, supplierId: r.supplierId,
     }
     const key: RowKey = route === 'muro' ? 'muro'
       : route === 'f24' ? 'f24'
@@ -445,6 +476,12 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
   for (const item of futureReal) {
     const b = bucketOf(decades, item.date!)
     if (b >= 0) add(rows[b].incassi, item)
+  }
+  // provviste da fare: nella decade della data (se è passata, in quella in corso)
+  for (const { item, out } of futureTransfers) {
+    const b = bucketOf(decades, item.date!)
+    if (b < 0) continue
+    add(out ? rows[b].muro : rows[b].incassi, item)
   }
 
   // Stime per decade
@@ -590,8 +627,10 @@ export function sumBlocks(blocks: BlockResult[], groupThresholdCents: number, la
     const rows = emptyRows()
     for (const b of blocks) {
       for (const k of Object.keys(rows) as RowKey[]) {
-        rows[k].total += b.decades[i].rows[k].total
-        rows[k].items.push(...b.decades[i].rows[k].items)
+        // le provviste sono giroconti fra le nostre società: nel gruppo si annullano
+        const items = b.decades[i].rows[k].items.filter(it => it.source !== 'provvista')
+        rows[k].total += items.reduce((s, it) => s + it.cents, 0)
+        rows[k].items.push(...items)
       }
     }
     const uscite = OUT_ROWS.reduce((s, k) => s + rows[k].total, 0)
@@ -607,8 +646,8 @@ export function sumBlocks(blocks: BlockResult[], groupThresholdCents: number, la
   return {
     code: 'GRUPPO', label, balanceCents, creditLineCents,
     bankBalanceCents: blocks.reduce((s, b) => s + b.bankBalanceCents, 0),
-    incassiDopoSaldo: blocks.flatMap(b => b.incassiDopoSaldo),
-    pagatiDopoSaldo: blocks.flatMap(b => b.pagatiDopoSaldo),
+    incassiDopoSaldo: blocks.flatMap(b => b.incassiDopoSaldo).filter(i => i.source !== 'provvista'),
+    pagatiDopoSaldo: blocks.flatMap(b => b.pagatiDopoSaldo).filter(i => !i.transferId),
     lastRegistered: null,
     balanceDate: dates.length ? dates.sort()[dates.length - 1] : null,
     balanceDatesDiffer: new Set(dates).size > 1 || blocks.some(b => b.balanceDatesDiffer),
@@ -630,6 +669,7 @@ export function sumBlocks(blocks: BlockResult[], groupThresholdCents: number, la
 // dovuto. La percentuale è una per tutto il gruppo: i blocchi la ricevono già decisa.
 
 export type WindowDecade = {
+  fromPlan: boolean   // importi dei fornitori presi dal piano della decade, non dalla percentuale
   dovuto: number
   suggerita: number
   decisa: number | null
@@ -651,6 +691,7 @@ export type InvoiceLedger = {
   method?: string | null
   doc?: string | null
   estimate: boolean      // stima delle nuove fatture, non una fattura vera
+  planKey?: string       // società + fornitore, per il piano della decade
   start: number          // decade in cui entra nel dovuto
   original: number
   before: number[]       // quanto restava all'inizio di ogni decade
@@ -664,9 +705,19 @@ export function suggestPct(disponibile: number, dovuto: number): number {
   return Math.max(0, Math.min(1, disponibile / dovuto))
 }
 
+// Chiave del fornitore nel piano della decade: la società più il fornitore dell'anagrafica,
+// oppure il nome normalizzato se la riga non ha fornitore
+export function planKey(companyId: string, supplierId: string | null | undefined, name: string | null | undefined): string {
+  return `${companyId}|${backlogKey(supplierId, name)}`
+}
+
+// Piano della decade (Marco, 19/10/2026): nelle decadi con un piano i fornitori sopra i 300 € non si
+// pagano in percentuale, ma con l'importo deciso per ognuno, dalla fattura più vecchia.
+// `planned(i)` dà, per chiave del fornitore, quanto resta da pagare nella decade i (null = nessun piano).
 export function allocateWindow(
   result: BlockResult,
   pctFor: (i: number, disponibile: number, dovuto: number) => { suggerita: number; decisa: number | null },
+  planned?: (i: number) => Map<string, number> | null,
 ): WindowResult {
   const n = result.decades.length
   const invoices: InvoiceLedger[] = []
@@ -677,6 +728,7 @@ export function allocateWindow(
         key: it.rowId ?? `${it.estimateId}|${it.month}|${it.idx}`,
         label: it.label, rowId: it.rowId, companyId: it.companyId, date: it.date, method: it.method,
         doc: it.doc, estimate: !it.rowId, start: i, original: it.cents, before: Array(n).fill(0), paid: Array(n).fill(0),
+        planKey: it.rowId && it.companyId ? planKey(it.companyId, it.supplierId, it.label) : undefined,
       })
     }
   })
@@ -691,16 +743,30 @@ export function allocateWindow(
     for (const v of open) v.before[i] = v.original - v.paid.slice(0, i).reduce((a, b) => a + b, 0)
     const dovuto = open.reduce((s, v) => s + v.before[i], 0)
     const { suggerita, decisa } = pctFor(i, base - d.soglia, dovuto)
-    const applicata = decisa ?? suggerita
+    const plan = planned?.(i) ?? null
+    let applicata = decisa ?? suggerita
     let pagato = 0
-    for (const v of open) {
-      const pay = Math.round(v.before[i] * applicata)
-      v.paid[i] = pay
-      pagato += pay
+    if (plan) {
+      const left = new Map(plan)
+      const byAge = [...open].sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))
+      for (const v of byAge) {
+        const rest = v.planKey ? left.get(v.planKey) ?? 0 : 0
+        const pay = Math.min(v.before[i], rest)
+        v.paid[i] = pay
+        pagato += pay
+        if (v.planKey && pay) left.set(v.planKey, rest - pay)
+      }
+      applicata = dovuto > 0 ? pagato / dovuto : 1
+    } else {
+      for (const v of open) {
+        const pay = Math.round(v.before[i] * applicata)
+        v.paid[i] = pay
+        pagato += pay
+      }
     }
     const fine = base - pagato
     decades.push({
-      dovuto, suggerita, decisa, applicata, pagato, riporto: dovuto - pagato,
+      fromPlan: !!plan, dovuto, suggerita, decisa, applicata, pagato, riporto: dovuto - pagato,
       inizio, fine, dispFido: fine + d.fido, fabbisogno: Math.max(0, d.soglia - fine),
     })
     inizio = fine
@@ -847,4 +913,151 @@ export function splitPlan(totalCents: number, n: number, start: Pick<Decade, 'mo
     } else idx = (idx + 1) as DecadeIdx
   }
   return out
+}
+
+// ─── Piano della decade (Marco, 19/10/2026) ──────────────────────────────────
+//
+// Il piano congela solo le decisioni: per ogni fornitore sopra i 300 € l'importo e la priorità,
+// più le provviste fra società. Muro, automatiche, F24 da recuperare, quote dell'arretrato,
+// impegni e fatture sotto i 300 € restano «vivi»: si leggono dal cruscotto e si pagano per intero.
+
+export type PlanSupplier = {
+  id: string
+  companyId: string
+  key: string            // planKey: società + fornitore
+  name: string
+  plannedCents: number
+  priority: number
+}
+
+export type SupplierDue = {
+  key: string
+  companyId: string
+  name: string
+  dovuto: number         // scaduto + in scadenza fino alla fine della decade, al netto di quanto previsto prima
+  oldest: string | null  // scadenza più vecchia
+  invoices: number
+}
+
+// Fornitori sopra i 300 € con qualcosa da pagare entro la decade i (dal registro della finestra:
+// tiene conto di quanto le decadi prima pagano già, col piano o con la percentuale)
+export function supplierDues(window: WindowResult, i: number): SupplierDue[] {
+  const by = new Map<string, SupplierDue>()
+  for (const v of window.invoices) {
+    if (!v.planKey || v.start > i || v.before[i] <= 0) continue
+    const cur = by.get(v.planKey) ?? {
+      key: v.planKey, companyId: v.companyId ?? '', name: v.label, dovuto: 0, oldest: null, invoices: 0,
+    }
+    cur.dovuto += v.before[i]
+    cur.invoices++
+    if (v.date && (!cur.oldest || v.date < cur.oldest)) cur.oldest = v.date
+    by.set(v.planKey, cur)
+  }
+  return [...by.values()].sort((a, b) => b.dovuto - a.dovuto)
+}
+
+// Lo spazio per i fornitori in una decade di un blocco: quello che resta dopo tutto ciò che si paga
+// per intero, tolta la soglia minima di cassa
+export type BlockSpace = {
+  inizio: number
+  incassi: number
+  perIntero: number      // muro + automatiche + impegni + F24 da recuperare + arretrato + fatture sotto 300 €
+  spazio: number         // inizio + incassi − perIntero − soglia
+  fornitori: number      // deciso nel piano (o in percentuale, se non c'è piano)
+  fine: number           // saldo a fine decade dopo i fornitori
+  soglia: number
+  fabbisogno: number     // quanto manca per restare sopra la soglia
+  primaUscita: string | null  // data della prima uscita per intero della decade
+}
+
+export function blockSpace(result: BlockResult, window: WindowResult, i: number): BlockSpace {
+  const d = result.decades[i]
+  const r = d.rows
+  const w = window.decades[i]
+  const perIntero = r.muro.total + r.automatici.total + r.pianificati.total + r.f24.total + r.arretrati.total + r.fattureSotto.total
+  const dates = [...r.muro.items, ...r.automatici.items, ...r.f24.items]
+    .map(it => it.date).filter((x): x is string => !!x).sort()
+  return {
+    inizio: w.inizio, incassi: r.incassi.total, perIntero,
+    spazio: w.inizio + r.incassi.total - perIntero - d.soglia,
+    fornitori: w.pagato, fine: w.fine, soglia: d.soglia, fabbisogno: w.fabbisogno,
+    primaUscita: dates[0] ?? null,
+  }
+}
+
+// Provvista suggerita: quello che manca al blocco per restare sopra la soglia, arrotondato ai 100 €
+export function suggestedTransfer(space: BlockSpace): number {
+  if (space.fabbisogno <= 0) return 0
+  return Math.ceil(space.fabbisogno / 10000) * 10000
+}
+
+// Quanto resta da pagare a ogni fornitore del piano nella decade: deciso − già pagato nella decade
+export function plannedRemaining(plan: PlanSupplier[], paidByKey: Map<string, number>): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const p of plan) out.set(p.key, Math.max(0, p.plannedCents - (paidByKey.get(p.key) ?? 0)))
+  return out
+}
+
+// ─── Esecuzione ──────────────────────────────────────────────────────────────
+
+// Un pagamento registrato nella decade, con quello che serve per capire se era nel piano
+export type DecadeTx = {
+  id: string
+  rowId: string
+  companyId: string
+  supplierId: string | null
+  supplierName: string | null
+  paidDate: string
+  cents: number
+  note: string | null
+  discretionary: boolean  // fattura di un fornitore che si decide (non muro, non automatica, non infragruppo)
+}
+
+export type LineState = 'da_pagare' | 'pagato' | 'in_parte' | 'scoperto' | 'oltre'
+
+export type LineStatus = { paid: number; state: LineState }
+
+export function lineStatus(planned: number, paid: number, today: string, decadeEnd: string): LineStatus {
+  if (paid > planned + 100) return { paid, state: 'oltre' }   // tolleranza di 1 €
+  if (planned > 0 && paid >= planned - 100) return { paid, state: 'pagato' }
+  if (planned === 0) return { paid, state: 'pagato' }
+  if (today > decadeEnd) return { paid, state: 'scoperto' }
+  return { paid, state: paid > 0 ? 'in_parte' : 'da_pagare' }
+}
+
+export function txKey(t: Pick<DecadeTx, 'companyId' | 'supplierId' | 'supplierName'>): string {
+  return planKey(t.companyId, t.supplierId, t.supplierName)
+}
+
+export function paidByKey(txs: DecadeTx[]): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const t of txs) m.set(txKey(t), (m.get(txKey(t)) ?? 0) + t.cents)
+  return m
+}
+
+// Pagamenti fuori piano: a un fornitore che si decide e che nel piano non c'è (da 300 € in su),
+// o la parte pagata oltre l'importo deciso. Le quote dell'arretrato hanno il loro piano: non contano.
+export type OffPlan = { key: string; companyId: string; name: string; cents: number; dates: string[]; why: 'non_nel_piano' | 'oltre' }
+
+export function offPlan(plan: PlanSupplier[], txs: DecadeTx[]): OffPlan[] {
+  const planned = new Map(plan.map(p => [p.key, p]))
+  const by = new Map<string, { companyId: string; name: string; cents: number; dates: string[] }>()
+  for (const t of txs) {
+    if (!t.discretionary || t.note?.startsWith('Quota arretrato')) continue
+    const k = txKey(t)
+    const cur = by.get(k) ?? { companyId: t.companyId, name: t.supplierName ?? '—', cents: 0, dates: [] }
+    cur.cents += t.cents
+    cur.dates.push(t.paidDate)
+    by.set(k, cur)
+  }
+  const out: OffPlan[] = []
+  for (const [k, v] of by) {
+    const p = planned.get(k)
+    if (!p) {
+      if (v.cents >= 30000) out.push({ key: k, ...v, why: 'non_nel_piano' })
+    } else if (v.cents > p.plannedCents + 100) {
+      out.push({ key: k, ...v, cents: v.cents - p.plannedCents, why: 'oltre' })
+    }
+  }
+  return out.sort((a, b) => b.cents - a.cents)
 }

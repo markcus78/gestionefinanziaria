@@ -24,6 +24,7 @@ import {
   Inbox,
   BookOpen,
   Sun,
+  ListChecks,
 } from 'lucide-react'
 import { signOut } from '@/app/login/actions'
 
@@ -39,6 +40,7 @@ const navItems = [
   { href: '/payments', label: 'Pagamenti', icon: CreditCard },
   { href: '/staff', label: 'Staff', icon: Users },
   { href: '/treasury', label: 'Tesoreria', icon: Wallet },
+  { href: '/piano', label: 'Pagamenti della decade', icon: ListChecks },
   { href: '/forecast', label: 'Previsione 6 mesi', icon: BarChart3 },
   { href: '/intercompany', label: 'Intercompany', icon: ArrowLeftRight },
 ]

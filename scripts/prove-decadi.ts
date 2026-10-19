@@ -2,7 +2,8 @@
 import {
   allocateWindow, suggestPct, supplierKey, groupBacklog, activeInstallments, splitPlan, backlogKey, f24Limit,
   decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, computeBlock, sumBlocks, uncoveredShare, consumeByDecade,
-  type Estimate, type OutRow, type BlockInput,
+  planKey, supplierDues, blockSpace, suggestedTransfer, plannedRemaining, lineStatus, offPlan, paidByKey,
+  type Estimate, type OutRow, type BlockInput, type Transfer, type DecadeTx, type PlanSupplier,
 } from '../lib/decadi.ts'
 import { matchPivaInvoices, personKey } from '../lib/piva-match.ts'
 import { calcPayoutDate } from '../lib/channel-utils.ts'
@@ -299,6 +300,88 @@ eq('Acea: rata nel muro, anche se utenza', routeOut({ ...base, supplierCategory:
 eq('Acea: rata scaduta resta nel muro', routeOut({ ...base, supplierCategory: 'utenze', installmentsOnly: true, isInstallment: true }, { ...ctx, backlogBefore: '2026-10-01' }), 'muro')
 eq('Acea: bolletta singola non si conta', routeOut({ ...base, supplierCategory: 'utenze', installmentsOnly: true, isInstallment: false, dueDate: '2026-10-09' }, ctx), 'escluso')
 
+
+// ── Piano della decade (Marco, 19/10): importi decisi per fornitore al posto della percentuale ──
+{
+  const pw = computeBlock(blockInput('APPIAE', ['AP'], {
+    estimates: [], balanceCents: 200000,
+    rows: [
+      { ...base, id: 'p1', companyId: 'AP', supplierId: 'S1', supplierName: 'Alfa', residualCents: 60000, dueDate: '2026-09-01' },
+      { ...base, id: 'p2', companyId: 'AP', supplierId: 'S1', supplierName: 'Alfa', residualCents: 40000, dueDate: '2026-09-20' },
+      { ...base, id: 'p3', companyId: 'AP', supplierId: 'S2', supplierName: 'Beta', residualCents: 50000, dueDate: '2026-10-05' },
+      { ...base, id: 'p4', companyId: 'AP', supplierId: 'S3', supplierName: 'Gamma', residualCents: 80000, dueDate: '2026-10-15' },
+    ],
+  }), dec)
+  const kA = planKey('AP', 'S1', 'Alfa'), kB = planKey('AP', 'S2', 'Beta'), kG = planKey('AP', 'S3', 'Gamma')
+  eq('chiave del piano: società + fornitore', kA, 'AP|S:S1')
+  const plan0 = new Map([[kA, 70000], [kB, 0]])
+  const pwin = allocateWindow(pw, () => ({ suggerita: 0.5, decisa: null }), i => i === 0 ? plan0 : null)
+  eq('D1 col piano: si paga quanto deciso', pwin.decades[0].pagato, 70000)
+  eq('D1 col piano: segnato «dal piano»', [pwin.decades[0].fromPlan, pwin.decades[1].fromPlan], [true, false])
+  eq('Alfa: prima la fattura più vecchia per intero', pwin.invoices.find(v => v.rowId === 'p1')!.paid[0], 60000)
+  eq('Alfa: poi 100 € della seconda', pwin.invoices.find(v => v.rowId === 'p2')!.paid[0], 10000)
+  eq('Beta a zero nel piano', pwin.invoices.find(v => v.rowId === 'p3')!.paid[0], 0)
+  eq('D2 senza piano: torna la percentuale', pwin.decades[1].applicata, 0.5)
+  // debiti verso i fornitori per la decade dopo: tolto quello che paga la D1
+  const dues = supplierDues(pwin, 1)
+  eq('dovuto in D2: Gamma, Beta, Alfa', dues.map(d => [d.name, d.dovuto]), [['Gamma', 80000], ['Beta', 50000], ['Alfa', 30000]])
+  eq('Alfa: la più vecchia ancora aperta (quella dell 1/9 la paga la D1)', dues.find(d => d.key === kA)!.oldest, '2026-09-20')
+  // spazio del blocco e provvista
+  const sp = blockSpace(pw, pwin, 0)
+  eq('spazio D1 = saldo − per intero − soglia', sp.spazio, 200000)
+  eq('fine D1 dopo i fornitori del piano', sp.fine, 130000)
+  eq('nessuna provvista se resta sopra la soglia', suggestedTransfer(sp), 0)
+  eq('provvista arrotondata ai 100 €', suggestedTransfer({ ...sp, fabbisogno: 123456 }), 130000)
+  // quanto resta da pagare del piano, tolto il già pagato
+  const pl: PlanSupplier[] = [
+    { id: 'a', companyId: 'AP', key: kA, name: 'Alfa', plannedCents: 70000, priority: 1 },
+    { id: 'g', companyId: 'AP', key: kG, name: 'Gamma', plannedCents: 20000, priority: 2 },
+  ]
+  eq('resto del piano', [...plannedRemaining(pl, new Map([[kA, 50000], [kG, 30000]]))], [[kA, 20000], [kG, 0]])
+  // stato delle righe
+  eq('da pagare', lineStatus(70000, 0, '2026-10-08', '2026-10-10').state, 'da_pagare')
+  eq('in parte', lineStatus(70000, 20000, '2026-10-08', '2026-10-10').state, 'in_parte')
+  eq('pagato (tolleranza 1 €)', lineStatus(70000, 69950, '2026-10-08', '2026-10-10').state, 'pagato')
+  eq('scoperto a decade finita', lineStatus(70000, 20000, '2026-10-11', '2026-10-10').state, 'scoperto')
+  eq('oltre il deciso', lineStatus(70000, 90000, '2026-10-08', '2026-10-10').state, 'oltre')
+  // fuori piano
+  const tx = (id: string, sup: string | null, name: string, cents: number, extra: Partial<DecadeTx> = {}): DecadeTx => ({
+    id, rowId: 'r' + id, companyId: 'AP', supplierId: sup, supplierName: name, paidDate: '2026-10-05', cents, note: null, discretionary: true, ...extra,
+  })
+  const txs = [
+    tx('1', 'S1', 'Alfa', 90000),                                   // 200 € oltre il deciso
+    tx('2', 'S9', 'Zeta', 50000),                                   // non nel piano
+    tx('3', 'S8', 'Piccolo', 12000),                                // sotto 300 €: non si segnala
+    tx('4', null, 'Enel', 80000, { discretionary: false }),         // muro
+    tx('5', 'S7', 'Vecchio', 40000, { note: 'Quota arretrato x' }), // quota del piano di rientro
+  ]
+  eq('pagato per fornitore', paidByKey(txs).get(kA), 90000)
+  eq('fuori piano: Zeta intero, Alfa la parte in più', offPlan(pl, txs).map(o => [o.name, o.cents, o.why]), [['Zeta', 50000, 'non_nel_piano'], ['Alfa', 20000, 'oltre']])
+}
+
+// ── Provviste fra società (Marco, 19/10): uscita di Appiae con la priorità del muro, incasso di chi riceve ──
+{
+  const tr = (extra: Partial<Transfer>): Transfer => ({
+    id: 't1', fromCompanyId: 'AP', toCompanyId: 'HG', cents: 400000, dueDate: '2026-10-15', paidDate: null, label: 'Provvista Appiae → Hangar', ...extra,
+  })
+  const apT = computeBlock(blockInput('APPIAE', ['AP'], { estimates: [], transfers: [tr({})] }), dec)
+  const hgT = computeBlock(blockInput('HANGAR', ['HG'], { estimates: [], transfers: [tr({})] }), dec)
+  eq('provvista da fare: muro di Appiae in D2', apT.decades[1].rows.muro.total, 400000)
+  eq('provvista da fare: incasso di Hangar in D2', hgT.decades[1].rows.incassi.total, 400000)
+  const gT = sumBlocks([apT, hgT], 0)
+  eq('nel gruppo si annulla', [gT.decades[1].rows.muro.total, gT.decades[1].rows.incassi.total], [0, 0])
+  // fatta dopo la data del saldo: entra nel saldo calcolato di tutte e due
+  const paid = tr({ paidDate: '2026-10-08' })
+  const apP = computeBlock(blockInput('APPIAE', ['AP'], { estimates: [], balanceDate: '2026-10-07', transfers: [paid] }), dec)
+  const hgP = computeBlock(blockInput('HANGAR', ['HG'], { estimates: [], balanceDate: '2026-10-07', transfers: [paid] }), dec)
+  eq('fatta: saldo calcolato di Appiae − 4.000', apP.balanceCents, -400000)
+  eq('fatta: saldo calcolato di Hangar + 4.000', hgP.balanceCents, 400000)
+  eq('fatta: non è più una riga del cruscotto', apP.decades[0].rows.muro.total + apP.decades[1].rows.muro.total, 0)
+  // fatta fino alla data del saldo: è già nel saldo della banca
+  const apOld = computeBlock(blockInput('APPIAE', ['AP'], { estimates: [], balanceDate: '2026-10-08', transfers: [tr({ paidDate: '2026-10-08' })] }), dec)
+  eq('fatta prima del saldo: già nel saldo', apOld.balanceCents, 0)
+  eq('giro dentro lo stesso blocco: non conta', computeBlock(blockInput('WT_ARIES', ['WT', 'AR'], { estimates: [], transfers: [tr({ fromCompanyId: 'WT', toCompanyId: 'AR' })] }), dec).decades[1].rows.muro.total, 0)
+}
 
 // ── Incassi registrati e pagamenti dopo il saldo (14/10) ──
 {

@@ -29,7 +29,7 @@ function formatPct(p: number) {
 }
 
 const SOURCE_LABEL: Record<CellItem['source'], string> = {
-  stima: 'stima', coffa: 'Coffa', previsione: 'previsione', scadenzario: 'scadenzario', impegno: 'impegno', staff: 'staff', piano: 'piano di rientro', reale: 'registrato', pagato: 'pagato',
+  stima: 'stima', coffa: 'Coffa', previsione: 'previsione', scadenzario: 'scadenzario', impegno: 'impegno', staff: 'staff', piano: 'piano di rientro', reale: 'registrato', pagato: 'pagato', provvista: 'provvista infragruppo',
 }
 
 function Amount({ cents, strong }: { cents: number; strong?: boolean }) {
@@ -286,7 +286,9 @@ function Grid({ result, window, compact, pctEditable, onPick, picked }: {
                 </td>
                 {ws.map((w, i) => (
                   <td key={ds[i].decade.key} className="px-3 py-1 text-right">
-                    {pctEditable
+                    {w.fromPlan
+                      ? <span className="text-xs text-sky-300" title="Importi decisi fornitore per fornitore in Pagamenti della decade">dal piano · {w.dovuto > 0 ? formatPct(w.applicata) : '—'}</span>
+                      : pctEditable
                       ? <PctInput key={`${ds[i].decade.key}|${w.decisa}`} month={ds[i].decade.month} idx={ds[i].decade.idx} decisa={w.decisa} suggerita={w.suggerita} />
                       : <span className="font-mono text-zinc-200">{w.dovuto > 0 ? formatPct(w.applicata) : '—'}</span>}
                   </td>

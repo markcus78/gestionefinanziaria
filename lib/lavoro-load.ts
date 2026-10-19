@@ -20,7 +20,7 @@ export async function loadTasks(supabase: Supa, today: string) {
   const since = rules.reduce((m, r) => (r.startDate < m ? r.startDate : m), today)
   const from = addDaysStr(since, -45)
 
-  const [{ data: doneRaw }, { data: imports }, { data: staff }, { data: accounts }, { data: colls }] = await Promise.all([
+  const [{ data: doneRaw }, { data: imports }, { data: staff }, { data: accounts }, { data: colls }, { data: plans }] = await Promise.all([
     supabase.from('daily_task_done').select('rule_id, period_key, done_by, done_at').gte('period_key', from),
     supabase.from('import_batches').select('company_id, imported_at').gte('imported_at', from),
     supabase.from('payment_schedule').select('company_id, commitment_type, reference_month')
@@ -29,6 +29,7 @@ export async function loadTasks(supabase: Supa, today: string) {
     supabase.from('bank_accounts').select('company_id, balance_date').eq('is_active', true),
     // solo gli ultimi 45 giorni: le voci di incassi guardano oggi e le decadi recenti (resta sotto le 1000 righe)
     supabase.from('daily_collections').select('company_id, created_at').gte('created_at', addDaysStr(today, -45)).limit(1000),
+    supabase.from('decade_plans').select('month, idx').eq('status', 'approvato').gte('month', addDaysStr(today, -45).slice(0, 7)),
   ])
 
   const done: DoneMap = new Map((doneRaw ?? []).map(d => [`${d.rule_id}|${d.period_key}`, { by: d.done_by, at: d.done_at }]))
@@ -37,6 +38,15 @@ export async function loadTasks(supabase: Supa, today: string) {
   const staffKeys = new Set((staff ?? []).map(s => `${s.company_id}|${s.commitment_type}|${s.reference_month}`))
   const balanceDates = (accounts ?? []).map(a => ({ company: a.company_id as string, date: a.balance_date as string | null }))
   const collDates = (colls ?? []).map(c => ({ company: c.company_id as string, date: romeDate(c.created_at) }))
+  const approved = new Set((plans ?? []).map(p => `${p.month}|${p.idx}`))
+  // la call del 6 pianifica l'11-20, quella del 16 il 21-fine mese, quella del 26 l'1-10 del mese dopo
+  const plannedDecade = (key: string): string => {
+    const day = +key.slice(8, 10), y = +key.slice(0, 4), m = +key.slice(5, 7)
+    if (day <= 10) return `${key.slice(0, 7)}|2`
+    if (day <= 20) return `${key.slice(0, 7)}|3`
+    const nm = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+    return `${nm}|1`
+  }
 
   // Il sistema vede da solo che è fatta (un flag a mano senza il caricamento non serve)
   const autoDone = (rule: TaskRule, key: string): boolean => {
@@ -51,6 +61,7 @@ export async function loadTasks(supabase: Supa, today: string) {
       case 'collaboratori': return staffKeys.has(`${c}|collab_item|${month}`) || staffKeys.has(`${c}|piva_item|${month}`)
       case 'f24': return staffKeys.has(`${c}|tax_item|${month}`)
       // incassi: registrati quel giorno (le voci di ogni giorno) o dalla data prevista in poi (gli affitti alle decadi)
+      case 'piano': return approved.has(plannedDecade(key))
       case 'incassi': return collDates.some(i => i.company === c && i.date >= (rule.freq === 'giornaliera' ? key : from2))
       default: return false
     }

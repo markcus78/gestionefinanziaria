@@ -21,7 +21,7 @@ export type TaskRule = {
   companyId: string | null
   holiday: 'prima' | 'dopo'
   superseded: boolean
-  auto: 'import' | 'saldi' | 'paghe' | 'collaboratori' | 'f24' | 'incassi' | null
+  auto: 'import' | 'saldi' | 'paghe' | 'collaboratori' | 'f24' | 'incassi' | 'piano' | null
   startDate: string
   sort: number
 }

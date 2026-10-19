@@ -43,7 +43,7 @@ Il lavoro è diviso in **tre fasi**, una dopo l'altra:
 - Una **stima** ha due destini: o **diventa impegno** (il personale, quando si carica il file del mese) o **diventa scadenza** (le utenze, quando arrivano le bollette). Il sistema la toglie da solo.
 - Ogni spesa verso un fornitore **deve avere il fornitore**, scelto dall'elenco dello scadenzario. Se il fornitore non ha ancora fatture, si spunta **«fornitore nuovo»**.
 - Le **richieste di spesa** sono il modo per chiedere una spesa: quando vengono approvate diventano impegni.
-- **Ogni giorno**: impegni e richieste nuove, pagamenti fatti. **A ogni decade (1, 11, 21)**: import dello scadenzario e controllo dei segnali. **Ogni mese**: file del personale e F24, controllo delle stime.
+- **Ogni giorno**: impegni e richieste nuove, pagamenti fatti. **A ogni decade (6, 16, 26)**: import dello scadenzario, saldi e call di pianificazione con Marco. **Durante la decade**: pagamenti per priorità in Pagamenti della decade. **Ogni mese**: file del personale e F24, controllo delle stime.
 
 ## Le tre fonti, spiegate
 
@@ -135,7 +135,7 @@ Il calendario sta in un posto solo: la pagina **Lavoro quotidiano**, il pulsante
 4. **Pro forma pagate**: registrarle in Stime con **Pagata pro forma**.
 5. **Segnalazioni** del Lavoro quotidiano: guardarle e sistemarle.
 
-### A ogni decade
+### A ogni decade (il 6, il 16 e il 26, prima della call di pianificazione)
 
 1. In Spring: **rigenerare i flussi finanziari**, poi esportare **EFLUSSISCADENZARIO** per Appiae, Hangar, Wellness Town e Aries.
 2. In Gestione Finanziaria: **Scadenzario → Importa XLS** per ognuna delle quattro società, controllando le righe sparite (pagate sì / no).
@@ -223,7 +223,7 @@ Nel **Lavoro quotidiano** ci sono tre voci, che si chiudono da sole quando gli i
 
 - **Registra gli incassi di Appiae**: ogni giorno lavorativo;
 - **Registra gli incassi di Hangar**: ogni giorno lavorativo;
-- **Registra i bonifici degli affitti (Aries)**: a ogni decade (il 1, l'11 e il 21).
+- **Registra i bonifici degli affitti (Aries)**: a ogni decade (il 6, il 16 e il 26), prima della call di pianificazione.
 
 C'è anche una segnalazione, **«Giorni di vendita senza incassi registrati»**: un giorno saltato in mezzo agli altri. È importante, perché la Tesoreria considera coperti tutti i giorni fino all'ultimo registrato, e quel giorno sparirebbe dalla cassa. Se quel giorno eravamo chiusi, si segna **«visto»**.
 
@@ -263,7 +263,7 @@ Una stima di incasso **non conta per i giorni già coperti** dal saldo della ban
 
 ## Il controllo: il saldo della banca
 
-A ogni decade (il 1, l'11 e il 21) si inserisce il **saldo vero** di ogni conto, con la data. La Tesoreria parte dal **saldo calcolato**: saldo della banca + incassi registrati arrivati dopo − pagamenti registrati dopo.
+A ogni decade (il 6, il 16 e il 26, prima della call di pianificazione) si inserisce il **saldo vero** di ogni conto, con la data. La Tesoreria parte dal **saldo calcolato**: saldo della banca + incassi registrati arrivati dopo − pagamenti registrati dopo.
 
 Se al saldo successivo il saldo vero e quello calcolato non tornano, c'è un movimento non registrato: un incasso dimenticato, un pagamento non segnato, un canale che arriva in giorni diversi, contanti versati. Si cerca e si sistema.
 
@@ -282,15 +282,79 @@ Perché i conti di Wellness Town sono bloccati e gli affitti arrivano sul conto 
   {
     slug: 'fase-3-pianificazione',
     titolo: 'Fase 3 — Pianificazione dei pagamenti',
-    stato: 'in preparazione',
+    stato: 'completo',
     testo: `
 # Fase 3 — Pianificazione dei pagamenti
 
-> Capitolo in preparazione: si scrive per intero quando lavoriamo sulla fase 3. Qui sotto c'è solo quello che è già deciso.
+## In breve
 
-- Si lavora nel menu **Tesoreria**, a decadi (entro il 10, il 20, la fine del mese), per società e per gruppo.
-- I **saldi delle banche** si aggiornano una volta a decade (il 1, l'11 e il 21).
-- Il **muro** (personale, F24, utenze, rate) si paga per intero e prima di tutto; le fatture dei fornitori si pagano in proporzione allo spazio che resta in cassa; le fatture sotto i 300 € si pagano per intero.
+- Le uscite sono **scadenze** (dallo scadenzario) o **impegni** (spese decise, personale, F24, rate, tributi; le **stime** sono impegni di cui non si conosce ancora l'importo).
+- Si dividono in quattro gruppi: **muro** (si paga sempre e tutto), **automatiche** (escono da sole dalla banca), **fornitori** (si decide chi e quanto), **arretrato** (si decide creditore per creditore).
+- Ogni decade si pianifica **prima che cominci**, in una call fra Marco e Orianna: il **6** per la decade 11-20, il **16** per il 21-fine mese, il **26** per l'1-10 del mese dopo. Se il giorno cade di sabato o di domenica, la call è il lunedì; se è festivo, il primo giorno lavorativo dopo.
+- Durante la decade Orianna paga **per priorità** e registra ogni pagamento in **Pagamenti della decade**.
+- La schermata mostra se il piano è stato rispettato: pagato, da pagare, scoperto, **fuori piano**.
+
+## Il giorno della pianificazione (6, 16, 26)
+
+**Prima della call**, la mattina:
+
+1. **Import dello scadenzario** delle quattro società (in Spring: rigenerare i flussi finanziari, poi esportare EFLUSSISCADENZARIO).
+2. **Saldi delle banche** di tutti i conti, con la data.
+3. **Affitti** arrivati sul conto di Aries, nel menu Incassi.
+
+**In call**, nel menu **Pagamenti della decade** (la decade da pianificare è già selezionata):
+
+1. **Crea il piano della decade**: compare l'elenco dei fornitori sopra 300 € che hanno qualcosa da pagare entro la fine della decade.
+2. **Il conto della decade**, blocco per blocco, nell'ordine **Hangar → WT e Aries → Appiae**: saldo a inizio decade + incassi previsti − quello che si paga per intero − soglia minima = **spazio per i fornitori**.
+3. **Provviste**: se Hangar o WT non ce la fanno (c'è un **fabbisogno**), si crea la **provvista da Appiae**: ad Hangar, oppure **ad Aries** per WT (i conti di WT sono bloccati, Aries paga per WT). L'importo suggerito è quello che manca per restare sopra la soglia. Se un blocco ha cassa in più, può **restituire** ad Appiae. Appiae si guarda per ultima, perché le provviste sono sue uscite.
+4. **Fornitori**: per ognuno si scrive **quanto paghiamo** (zero, una parte o tutto) e l'**ordine** di priorità. L'importo copre le fatture del fornitore **dalla più vecchia**. Accanto c'è il «riferimento»: quanto toccherebbe con la percentuale uguale per tutti.
+5. **Approva il piano**. Da quel momento il cruscotto della Tesoreria usa gli importi decisi per quella decade, e così le schede «Fatture da pagare» e «Avvisi ai fornitori». Per cambiare qualcosa: «Riapri per modificare», poi di nuovo «Approva».
+
+> Il piano congela solo le **decisioni sui fornitori e le provviste**. Muro, automatiche, F24 da recuperare, quote dell'arretrato, impegni e fatture sotto i 300 € si pagano per intero e si aggiornano da soli: le stime diventano righe vere quando arrivano i file del personale e le fatture.
+
+## Durante la decade: pagare per priorità
+
+L'ordine è sempre questo:
+
+1. **Muro** (personale, utenze, F24, rate, piani di rientro) e **provviste** fra società;
+2. **automatiche** (RID, RI.BA.): escono da sole, non si fa niente;
+3. **quote dell'arretrato**;
+4. **fornitori**, nell'ordine deciso in call, **entro la fine della decade**.
+
+Se gli incassi vanno peggio del previsto, si paga dall'alto finché c'è cassa: quello che resta **scoperto** torna da solo nella pianificazione successiva. Non serve una nuova call.
+
+**Come si registra:**
+
+- Su ogni riga c'è **Pagato**: si scrivono la **data vera** del bonifico e l'importo. È la registrazione del pagamento, non un passaggio in più: aggiorna lo scadenzario, gli impegni e il saldo calcolato.
+- Per un fornitore, l'importo si registra sulle sue fatture **dalla più vecchia**.
+- Per una provvista, **Fatta** con la data del giroconto.
+- Se la data è uguale o precedente alla data del saldo della banca, compare un avviso: quel pagamento è già dentro il saldo e verrebbe tolto due volte.
+- I pagamenti si possono registrare anche da Pagamenti, Impegni o Staff: la schermata li vede lo stesso.
+
+## Il controllo
+
+Nella decade in corso la schermata mostra, per ogni fornitore del piano: **✅ pagato**, **⏳ da pagare / in parte**, **🔴 scoperto** (decade finita e non pagato tutto), **⚠️ oltre il deciso**.
+
+**Fuori piano**: un pagamento a un fornitore che nel piano non c'è (da 300 € in su), o la parte pagata oltre l'importo deciso. È il caso delle richieste di pagamento in più: **non si fa senza parlarne con Marco**.
+
+In fondo c'è l'elenco di tutti i pagamenti registrati nella decade.
+
+## Le provviste fra società
+
+- La provvista è una **uscita di Appiae** con la stessa priorità del muro e un **incasso** per chi la riceve. Nel totale del gruppo si annulla: è un giroconto.
+- Finché non è fatta, sta nel cruscotto nella decade della sua data. Fatta, entra nel saldo calcolato delle due società.
+- La schermata tiene il conto di quanto ogni società **deve ad Appiae** per le provviste ricevute, al netto delle restituzioni.
+
+## Domande frequenti
+
+**Un fornitore nuovo ha mandato una fattura dopo la call. Cosa faccio?**
+Se il piano è in bozza, «Aggiorna l'elenco dei fornitori». Se è approvato, si riapre, si aggiorna, si decide e si riapprova; se non è urgente, entra nella pianificazione successiva.
+
+**Ho pagato un fornitore che non era nel piano.**
+Compare fra i **fuori piano**. Va detto a Marco.
+
+**Perché le fatture sotto i 300 € non sono fra i fornitori da decidere?**
+Perché si pagano sempre per intero (regola del 07/09): un acconto piccolo costa più in gestione di quanto pesi in cassa.
 `,
   },
 ]
