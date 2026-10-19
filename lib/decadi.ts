@@ -298,6 +298,7 @@ export type RealIncasso = {
   saleDate: string
   arrival: string
   cents: number
+  cashCounts?: boolean   // contanti che si versano in banca (Hangar, regola del 19/10): contano
 }
 export type PaidMove = { companyId: string; label: string; date: string; cents: number }
 
@@ -383,7 +384,8 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
   for (const r of input.realIncassi ?? []) {
     if (!input.companyIds.includes(r.companyId)) continue
     if (r.saleDate > (lastReg.get(r.companyId) ?? '')) lastReg.set(r.companyId, r.saleDate)
-    if (isCashChannel(r.channel) || r.cents <= 0) continue
+    // i contanti non contano (restano in cassa per le spese piccole), salvo il canale che li versa
+    if ((isCashChannel(r.channel) && !r.cashCounts) || r.cents <= 0) continue
     if (r.arrival <= input.today && (!D || r.arrival <= D)) continue
     const item: CellItem = {
       label: `${r.channel} del ${r.saleDate.slice(8, 10)}/${r.saleDate.slice(5, 7)}`, cents: r.cents, source: 'reale',

@@ -91,26 +91,30 @@ export default async function TreasuryPage({
   // Incassi registrati da Orianna e pagamenti registrati dopo il saldo più vecchio
   const minBalance = ((accounts ?? []) as BankAccount[]).map(a => a.balance_date).filter((d): d is string => !!d).sort()[0]
     ?? addDays(firstDay, -30)
-  const [{ data: collRaw, error: collErr }, { data: paidRaw, error: paidErr }] = await Promise.all([
+  const [{ data: collRaw, error: collErr }, { data: paidRaw, error: paidErr }, { data: cashCountRaw }] = await Promise.all([
     supabase.from('daily_collections')
-      .select('company_id, collection_date, gross_amount_cents, net_amount_cents, settlement_expected_date, settled_date, cash_channels(name)')
+      .select('company_id, channel_id, collection_date, gross_amount_cents, net_amount_cents, settlement_expected_date, settled_date, cash_channels(name)')
       .gte('collection_date', addDays(minBalance < firstDay ? minBalance : firstDay, -40)),
     supabase.from('payment_transactions')
       .select('paid_date, amount_cents, payment_schedule!inner(company_id, supplier_name, flow_type)')
       .gt('paid_date', minBalance).eq('payment_schedule.flow_type', 'out'),
+    // canali Contanti che si versano in banca e quindi contano (Hangar, regola del 19/10)
+    supabase.from('company_cash_channels').select('company_id, channel_id').eq('cash_counts_in_treasury', true),
   ])
   if (collErr) throw new Error(collErr.message)
   if (paidErr) throw new Error(paidErr.message)
   type CollRow = {
-    company_id: string; collection_date: string; gross_amount_cents: number; net_amount_cents: number | null
+    company_id: string; channel_id: string; collection_date: string; gross_amount_cents: number; net_amount_cents: number | null
     settlement_expected_date: string | null; settled_date: string | null; cash_channels: { name: string } | null
   }
+  const cashCounts = new Set((cashCountRaw ?? []).map(c => `${c.company_id}|${c.channel_id}`))
   const realIncassi: RealIncasso[] = ((collRaw ?? []) as unknown as CollRow[]).map(c => ({
     companyId: c.company_id,
     channel: c.cash_channels?.name ?? '—',
     saleDate: c.collection_date,
     arrival: c.settlement_expected_date ?? c.settled_date ?? c.collection_date,
     cents: c.net_amount_cents ?? c.gross_amount_cents,
+    cashCounts: cashCounts.has(`${c.company_id}|${c.channel_id}`),
   }))
   type PaidRow = { paid_date: string; amount_cents: number; payment_schedule: { company_id: string; supplier_name: string | null } }
   const paidAfter: PaidMove[] = ((paidRaw ?? []) as unknown as PaidRow[]).map(p => ({

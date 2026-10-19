@@ -326,10 +326,9 @@ export default function CollectionsTab({
                         <td className="px-3 py-2.5 text-zinc-400 tabular-nums text-xs">
                           {row.settlement_expected_date ? (
                             <>
-                              Payout: {' '}
-                              <span className={`${row.is_settled ? 'text-emerald-400' : 'text-zinc-300'}`}>
+                              In banca: {' '}
+                              <span className="text-zinc-300">
                                 {formatDateShort(row.settlement_expected_date)}
-                                {row.is_settled && ' ✓'}
                               </span>
                             </>
                           ) : (

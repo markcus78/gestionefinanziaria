@@ -54,6 +54,7 @@ export type CompanyCashChannel = {
   payout_type: 'rolling_days' | 'fixed_weekday' | null
   payout_rolling_days: number | null
   payout_fixed_weekday: number | null
+  cash_counts_in_treasury: boolean   // solo canale Contanti: true = si versano, contano in Tesoreria
 }
 
 export type ChannelConfig = CompanyCashChannel & {

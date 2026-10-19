@@ -108,6 +108,7 @@ export async function updateChannelConfig(_: unknown, formData: FormData) {
         payout_type: payoutType || null,
         payout_rolling_days: payoutRollingDays ? parseInt(payoutRollingDays) : null,
         payout_fixed_weekday: payoutFixedWeekday !== '' && payoutFixedWeekday != null ? parseInt(payoutFixedWeekday) : null,
+        cash_counts_in_treasury: formData.get('cash_counts') === '1',
       },
       { onConflict: 'company_id,channel_id' }
     )

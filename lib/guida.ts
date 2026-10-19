@@ -5,7 +5,7 @@
 
 export type CapitoloGuida = { slug: string; titolo: string; stato: 'completo' | 'in preparazione'; testo: string }
 
-export const GUIDA_AGGIORNATA = '15/10/2026'
+export const GUIDA_AGGIORNATA = '19/10/2026'
 
 export const GUIDA: CapitoloGuida[] = [
   {
@@ -185,16 +185,89 @@ In Stime, sulla riga di quel fornitore: «Pagata pro forma», importo e data. Se
   {
     slug: 'fase-2-incassi',
     titolo: 'Fase 2 — Inserimento degli incassi',
-    stato: 'in preparazione',
+    stato: 'completo',
     testo: `
 # Fase 2 — Inserimento degli incassi
 
-> Capitolo in preparazione: si scrive per intero quando lavoriamo sulla fase 2. Qui sotto c'è solo quello che è già deciso.
+## In breve
 
-- Gli incassi si registrano nel menu **Incassi**, alla data in cui **arrivano in banca** (Alma, POS, TSPay).
-- Per il mese in corso la Tesoreria usa gli **incassi veri registrati**; le previsioni di Coffa servono solo per i giorni e i mesi futuri.
-- **Hangar**: da ottobre si registrano anche i suoi incassi.
-- **Affitti** incassati con bonifico: si inseriscono a mano.
+- Gli incassi sono di due tipi: **registrati** (quelli veri) e **previsti** (Coffa e stime).
+- Gli incassi **registrati** si inseriscono ogni giorno nel menu **Incassi**, per società e per canale.
+- Contano alla data in cui **arrivano in banca**, non a quella della vendita: il sistema la calcola da solo.
+- Quando un giorno è registrato, le previsioni di quel giorno **non contano più**: niente doppioni.
+- Il controllo è il **saldo della banca**, inserito a ogni decade.
+
+## Gli incassi registrati (menu Incassi)
+
+Ogni giorno lavorativo si inseriscono gli incassi (quelli del sabato e della domenica il lunedì), **una riga per giorno di vendita e per canale**: lordo, numero di transazioni e note. Il sistema calcola la commissione, il netto e il giorno in cui i soldi arrivano in banca.
+
+I canali per società:
+
+- **Appiae**: Alma, POS, TSPay, bonifico, Stripe, contanti.
+- **Hangar 55**: POS e contanti.
+- **Aries**: bonifico (gli **affitti degli spazi**, che Aries incassa **per conto di Wellness Town**, perché i conti di WT sono bloccati).
+- **Wellness Town**: nessun canale finché i conti sono bloccati.
+
+Quando arrivano in banca:
+
+- **Alma**: 7 giorni dopo la vendita.
+- **POS**: il giorno dopo.
+- **TSPay**: il martedì successivo.
+- **Bonifico**: il giorno stesso.
+- Se l'arrivo cade di **sabato o di domenica**, va al **lunedì**. Per esempio, il POS del venerdì e del sabato arriva il lunedì; l'Alma del sabato e della domenica arriva il lunedì della settimana dopo.
+
+I giorni di ogni canale si cambiano in **Impostazioni → Canali di incasso**.
+
+> Non serve più spuntare gli incassi come «accreditati»: la Tesoreria li conta alla data di arrivo prevista. Se un canale arriva in giorni diversi da quelli scritti, lo si vede dallo scarto con il saldo della banca (vedi sotto).
+
+### I contanti
+
+- **Appiae**: i contanti restano in cassa per le spese piccole e **non contano** in Tesoreria. Si registrano lo stesso, perché dicono quanto si è venduto.
+- **Hangar 55**: i contanti **contano**, perché si versano in banca quando se ne accumulano un po'. Se con i contanti si paga una fattura, il pagamento va **registrato con la data vera**, così il sistema lo toglie.
+- Si decide canale per canale in **Impostazioni → Canali di incasso**, con la casella **«Contano in Tesoreria»** sul canale Contanti.
+
+## Gli incassi previsti
+
+### Coffa (Appiae)
+
+Coffa manda ogni giorno la previsione degli incassi di Appiae: rinnovi, Scuole dello Sport, vendite nuove e la domanda che deve ancora arrivare. Coffa vede **solo il venduto commerciale di Appiae**: non vede il bar, gli affitti, i distributori.
+
+La previsione di Coffa conta solo per i giorni **dopo l'ultimo incasso registrato, più 5 giorni** (il tempo medio fra vendita e arrivo in banca). I giorni prima sono già coperti dalle righe vere.
+
+Se Coffa non manda i dati, resta la stima di riserva «Incassi abbonamenti (Coffa)» nel menu Stime.
+
+### Le stime (menu Stime, tipo «Incasso»)
+
+Per gli incassi che Coffa non vede si usa una stima, con l'importo al mese e come si divide fra le decadi:
+
+- **Bar di Hangar 55**: stima mensile.
+- **Affitti degli spazi** (su Aries): la stima si fa **sulla base dei contratti attivi** e si aggiorna quando un contratto comincia o finisce.
+
+Una stima di incasso **non conta per i giorni già coperti** dal saldo della banca o dagli incassi registrati di quella società: conta solo per i giorni che mancano.
+
+## Come il sistema evita i doppioni
+
+- **Incasso registrato** → conta sempre, alla data di arrivo in banca.
+- **Coffa** → conta solo dopo l'ultimo giorno registrato + 5.
+- **Stima di incasso** → conta solo per i giorni non ancora registrati.
+- **Saldo della banca** → contiene già tutto quello che è arrivato fino alla sua data: gli incassi arrivati prima non si contano di nuovo.
+
+## Il controllo: il saldo della banca
+
+A ogni decade (il 1, l'11 e il 21) si inserisce il **saldo vero** di ogni conto, con la data. La Tesoreria parte dal **saldo calcolato**: saldo della banca + incassi registrati arrivati dopo − pagamenti registrati dopo.
+
+Se al saldo successivo il saldo vero e quello calcolato non tornano, c'è un movimento non registrato: un incasso dimenticato, un pagamento non segnato, un canale che arriva in giorni diversi, contanti versati. Si cerca e si sistema.
+
+## Domande frequenti
+
+**Ho registrato un incasso con la data sbagliata. Cosa faccio?**
+Si cancella la riga e si inserisce di nuovo: la data di arrivo in banca si ricalcola.
+
+**Un incasso è arrivato in banca in un giorno diverso da quello previsto. Devo correggerlo?**
+No. Se succede sempre per lo stesso canale, si cambiano i giorni del canale in Impostazioni; il saldo della banca a ogni decade rimette le cose a posto.
+
+**Perché gli affitti stanno su Aries e non su Wellness Town?**
+Perché i conti di Wellness Town sono bloccati e gli affitti arrivano sul conto di Aries. La Tesoreria guarda dove stanno i soldi.
 `,
   },
   {

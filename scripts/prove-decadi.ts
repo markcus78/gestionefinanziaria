@@ -5,6 +5,7 @@ import {
   type Estimate, type OutRow, type BlockInput,
 } from '../lib/decadi.ts'
 import { matchPivaInvoices, personKey } from '../lib/piva-match.ts'
+import { calcPayoutDate } from '../lib/channel-utils.ts'
 
 let ok = 0, ko = 0
 function eq(name: string, got: unknown, want: unknown) {
@@ -343,7 +344,25 @@ eq('Acea: bolletta singola non si conta', routeOut({ ...base, supplierCategory: 
   eq('bar D2 senza registrazioni: 8/10 della quota', bar0, Math.round(333300 * 0.8))
   const bar1 = computeBlock(hgIn({ realIncassi: [{ companyId: 'HG', channel: 'POS', saleDate: '2026-10-15', arrival: '2026-10-16', cents: 50000 }] }), d14)
   eq('bar D2 registrato fino al 15: stima 5/10 + incasso vero', bar1.decades[0].rows.incassi.total, Math.round(333300 * 0.5) + 50000)
+  // Contanti (Marco, 19/10): quelli di Hangar si versano e contano, gli altri no
+  const cash = (cashCounts: boolean) => computeBlock(hgIn({ realIncassi: [
+    { companyId: 'HG', channel: 'Contanti', saleDate: '2026-10-15', arrival: '2026-10-15', cents: 40000, cashCounts },
+  ] }), d14).decades[0].rows.incassi.total
+  eq('contanti che si versano: contano', cash(true), Math.round(333300 * 0.5) + 40000)
+  eq('contanti che restano in cassa: non contano, ma i giorni sono coperti', cash(false), Math.round(333300 * 0.5))
 }
+
+// ── Arrivo in banca (Marco, 19/10): sabato e domenica vanno al lunedì ──
+eq('Alma: venerdì 16 → venerdì 23', calcPayoutDate('2026-10-16', 'rolling_days', 7, null), '2026-10-23')
+eq('Alma: sabato 17 → lunedì 26', calcPayoutDate('2026-10-17', 'rolling_days', 7, null), '2026-10-26')
+eq('Alma: domenica 18 → lunedì 26', calcPayoutDate('2026-10-18', 'rolling_days', 7, null), '2026-10-26')
+eq('Alma: sabato 24 → lunedì 2 novembre', calcPayoutDate('2026-10-24', 'rolling_days', 7, null), '2026-11-02')
+eq('POS: giovedì 15 → venerdì 16', calcPayoutDate('2026-10-15', 'rolling_days', 1, null), '2026-10-16')
+eq('POS: venerdì 16 → lunedì 19', calcPayoutDate('2026-10-16', 'rolling_days', 1, null), '2026-10-19')
+eq('POS: sabato 17 → lunedì 19', calcPayoutDate('2026-10-17', 'rolling_days', 1, null), '2026-10-19')
+eq('POS: domenica 18 → lunedì 19', calcPayoutDate('2026-10-18', 'rolling_days', 1, null), '2026-10-19')
+eq('TSPay il martedì: sabato 17 → martedì 20', calcPayoutDate('2026-10-17', 'fixed_weekday', null, 1), '2026-10-20')
+eq('TSPay il martedì: martedì 20 → martedì 27', calcPayoutDate('2026-10-20', 'fixed_weekday', null, 1), '2026-10-27')
 
 
 // ── Consumo per decade (Marco, 14/10: prodotti piscina 50% D1 e 50% D3) ──

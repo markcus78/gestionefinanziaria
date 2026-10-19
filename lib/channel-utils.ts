@@ -24,6 +24,11 @@ export function calcCommissionCents(
  *
  * payout_fixed_weekday: 0 = Lunedì, 1 = Martedì, ..., 6 = Domenica
  * Se collectionDate cade già sul giorno target → rimanda alla settimana successiva.
+ *
+ * rolling_days: N giorni dopo la vendita; se l'arrivo cade di sabato o di domenica va al
+ * lunedì (regola di Marco, 19/10/2026: Alma a 7 giorni, sabato e domenica entrano il lunedì;
+ * POS a 1 giorno, venerdì e sabato entrano il lunedì).
+ * Date calcolate in UTC: in Italia `new Date('…T00:00:00').toISOString()` darebbe il giorno prima.
  */
 export function calcPayoutDate(
   collectionDate: string,
@@ -31,17 +36,20 @@ export function calcPayoutDate(
   rollingDays: number | null,
   fixedWeekday: number | null
 ): string {
-  const d = new Date(collectionDate + 'T00:00:00')
+  const d = new Date(collectionDate + 'T00:00:00Z')
 
   if (payoutType === 'rolling_days' && rollingDays != null) {
-    d.setDate(d.getDate() + rollingDays)
+    d.setUTCDate(d.getUTCDate() + rollingDays)
+    const day = d.getUTCDay()
+    if (day === 6) d.setUTCDate(d.getUTCDate() + 2)
+    else if (day === 0) d.setUTCDate(d.getUTCDate() + 1)
   } else if (payoutType === 'fixed_weekday' && fixedWeekday != null) {
     // Converti da convenzione EU (0=Lun) a JS getDay() (0=Dom, 1=Lun, …, 6=Sab)
     const jsTarget = (fixedWeekday + 1) % 7
-    const current = d.getDay()
+    const current = d.getUTCDay()
     let daysAhead = (jsTarget - current + 7) % 7
     if (daysAhead === 0) daysAhead = 7
-    d.setDate(d.getDate() + daysAhead)
+    d.setUTCDate(d.getUTCDate() + daysAhead)
   }
 
   return d.toISOString().split('T')[0]

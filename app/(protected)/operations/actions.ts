@@ -63,22 +63,6 @@ export async function addDailyCollection(params: {
   return { success: true }
 }
 
-// ─── Settlement ────────────────────────────────────────────────────────────────
-
-export async function markSettled(id: string) {
-  const supabase = await createClient()
-  const { error } = await supabase
-    .from('daily_collections')
-    .update({
-      is_settled: true,
-      settled_date: new Date().toISOString().split('T')[0],
-    })
-    .eq('id', id)
-  if (error) return { error: error.message }
-  revalidatePath('/operations')
-  return { success: true }
-}
-
 // ─── Elimina incasso ───────────────────────────────────────────────────────────
 
 export async function deleteDailyCollection(id: string) {

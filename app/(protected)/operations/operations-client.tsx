@@ -7,7 +7,6 @@ function formatEur(cents: number) {
 }
 import { MONTHS_SHORT } from '@/lib/channel-utils'
 import CollectionsTab from './collections-tab'
-import SettlementTab from './settlement-tab'
 import ScostamentoTab from './scostamento-tab'
 import type { ChannelConfig, CollectionWithChannel } from '@/lib/types/database'
 
@@ -18,7 +17,6 @@ type Props = {
   company: Company | null
   channelConfigs: ChannelConfig[]
   collections: CollectionWithChannel[]
-  pendingSettlements: CollectionWithChannel[]
   forecastCents: number
   year: number
   month: number
@@ -30,14 +28,15 @@ type Props = {
 const TABS = [
   { id: 'incassi',    label: 'Incassi' },
   { id: 'andamento',  label: 'Andamento' },
-  { id: 'settlement', label: 'Settlement' },
 ]
+// La scheda «Settlement» (spunta «accreditato») è tolta il 19/10/2026 (Marco): la Tesoreria usa
+// la data di arrivo prevista e il controllo è il saldo della banca a ogni decade.
 
 const YEARS = [2024, 2025, 2026, 2027]
 
 export default function OperationsClient({
   companies, company, channelConfigs,
-  collections, pendingSettlements,
+  collections,
   forecastCents, year, month, tab, today, canDelete,
 }: Props) {
   const router = useRouter()
@@ -140,11 +139,6 @@ export default function OperationsClient({
             }`}
           >
             {t.label}
-            {t.id === 'settlement' && pendingSettlements.length > 0 && (
-              <span className="ml-2 px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full">
-                {pendingSettlements.length}
-              </span>
-            )}
           </button>
         ))}
       </div>
@@ -167,12 +161,6 @@ export default function OperationsClient({
           year={year}
           month={month}
           today={today}
-        />
-      )}
-
-      {tab === 'settlement' && (
-        <SettlementTab
-          pendingSettlements={pendingSettlements}
         />
       )}
     </div>

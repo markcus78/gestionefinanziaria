@@ -35,6 +35,7 @@ type EditingState = {
   payoutType: string
   payoutRollingDays: string
   payoutFixedWeekday: string
+  cashCounts: boolean
 }
 
 export function ChannelsSection({
@@ -124,6 +125,7 @@ export function ChannelsSection({
       payoutFixedWeekday: config?.payout_fixed_weekday != null
         ? String(config.payout_fixed_weekday)
         : '',
+      cashCounts: config?.cash_counts_in_treasury ?? false,
     })
   }
 
@@ -137,6 +139,7 @@ export function ChannelsSection({
     if (editing.commFixed) formData.set('commission_fixed', editing.commFixed)
     if (editing.settlementDays) formData.set('settlement_days', editing.settlementDays)
     formData.set('payout_type', editing.payoutType)
+    formData.set('cash_counts', editing.cashCounts ? '1' : '0')
     if (editing.payoutType === 'rolling_days') {
       formData.set('payout_rolling_days', editing.payoutRollingDays)
     } else if (editing.payoutType === 'fixed_weekday') {
@@ -348,6 +351,24 @@ export function ChannelsSection({
                   <span className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">gg</span>
                 </div>
               </div>
+
+              {/* Contanti: contano in Tesoreria solo se si versano in banca (regola del 19/10) */}
+              {editing.channelName.trim().toLowerCase() === 'contanti' && (
+                <label className="flex items-start gap-2 text-sm text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={editing.cashCounts}
+                    onChange={e => setEditing(s => s ? { ...s, cashCounts: e.target.checked } : s)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Contano in Tesoreria
+                    <span className="block text-xs text-zinc-500">
+                      Si versano in banca (come al bar di Hangar). Spenta: restano in cassa per le spese piccole e non contano.
+                    </span>
+                  </span>
+                </label>
+              )}
 
               {/* Payout */}
               <div>
