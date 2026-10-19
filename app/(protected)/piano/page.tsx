@@ -4,7 +4,7 @@ import { ListChecks } from 'lucide-react'
 import PianoClient, { type PianoProps } from './piano-client'
 import { loadTreasury } from '@/lib/treasury-load'
 import {
-  addDays, blockSpace, suggestedTransfer, supplierDues, lineStatus, offPlan, paidByKey, txKey,
+  addDays, blockSpace, suggestedTransfer, supplierDues, lineStatus, offPlan, txKey,
   type RowKey, type BlockCode,
 } from '@/lib/decadi'
 
@@ -28,7 +28,7 @@ export default async function PianoPage({ searchParams }: { searchParams: Promis
   if (!user) redirect('/login')
 
   const t = await loadTreasury(supabase)
-  const { today, decades, blocks, windows, allCompanies, allAccounts, plans, planSuppliers, transferRows, decadeTxs } = t
+  const { today, decades, blocks, windows, allCompanies, allAccounts, plans, planSuppliers, transferRows, decadeTxs, importClosed, paidInDecade } = t
 
   // Dal 6° giorno della decade si lavora sulla prossima (la call è il 6, il 16 e il 26)
   const defaultI = today >= addDays(decades[0].from, 5) ? 1 : 0
@@ -44,7 +44,8 @@ export default async function PianoPage({ searchParams }: { searchParams: Promis
   const gw = windows.GRUPPO
   const dues = supplierDues(gw, i)
   const pct = gw.decades[i].suggerita
-  const paid = running ? paidByKey(decadeTxs.filter(x => x.discretionary)) : new Map<string, number>()
+  // pagato della decade in corso: pagamenti registrati (senza le quote dell'arretrato) + fatture chiuse dall'import
+  const paid = running ? paidInDecade : new Map<string, number>()
   const keys = new Set([...dues.map(d => d.key), ...lines.map(l => l.key)])
   const suppliers: PianoProps['suppliers'] = [...keys].map(k => {
     const due = dues.find(d => d.key === k)
@@ -56,6 +57,7 @@ export default async function PianoPage({ searchParams }: { searchParams: Promis
       key: k, supplierKey: k.slice(companyId.length + 1), companyId, company: codeOf.get(companyId) ?? '?',
       name: line?.name ?? due!.name, dovuto: due?.dovuto ?? 0, oldest: due?.oldest ?? null, invoices: due?.invoices ?? 0,
       reference: Math.round((due?.dovuto ?? 0) * pct), lineId: line?.id ?? null, planned, priority: line?.priority ?? null,
+      rowIds: due?.rowIds.length ? due.rowIds : line?.rowIds ?? [],
       paid: p, state: line ? lineStatus(planned, p, today, dec.to).state : (p > 0 ? 'oltre' : 'da_pagare'),
     }
   }).sort((a, b) => (a.priority ?? 9999) - (b.priority ?? 9999) || b.dovuto - a.dovuto)
@@ -103,7 +105,8 @@ export default async function PianoPage({ searchParams }: { searchParams: Promis
   }
 
   // Controllo della decade in corso: pagamenti fatti e fuori piano
-  const offs = running ? offPlan(lines, decadeTxs) : []
+  // il controllo ha senso solo se la decade ha un piano: senza, ogni pagamento sembrerebbe fuori piano
+  const offs = running && plan ? offPlan(lines, decadeTxs) : []
   const lineKeys = new Set(lines.map(l => l.key))
   const paidList: PianoProps['paidList'] = running ? decadeTxs.map(x => ({
     id: x.id, date: x.paidDate, company: codeOf.get(x.companyId) ?? '?', name: x.supplierName ?? '—', cents: x.cents,
@@ -130,7 +133,8 @@ export default async function PianoPage({ searchParams }: { searchParams: Promis
     blocks: blockViews, suppliers, perIntero, transfers,
     debts: [...debts].filter(([, v]) => v !== 0).map(([id, v]) => ({ company: codeOf.get(id) ?? '?', cents: v })),
     offPlan: offs.map(o => ({ company: codeOf.get(o.companyId) ?? '?', name: o.name, cents: o.cents, why: o.why, dates: o.dates })),
-    paidList, running, balanceDate, appiaeId: apId ?? null,
+    paidList, running, hasPlan: !!plan, balanceDate, appiaeId: apId ?? null,
+    importClosed: running ? importClosed.map(x => ({ name: x.name, cents: x.cents })) : [],
     dueInputs: dues.map(d => ({ companyId: d.companyId, supplierKey: d.key.slice(d.companyId.length + 1), name: d.name })),
     pct,
   }

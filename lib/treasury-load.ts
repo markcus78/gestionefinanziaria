@@ -200,12 +200,12 @@ export async function loadTreasury(supabase: Supa) {
   const planSuppliers: (PlanSupplier & { planId: string })[] = []
   if (plans.length) {
     const { data, error } = await supabase.from('decade_plan_suppliers')
-      .select('id, plan_id, company_id, supplier_key, supplier_name, planned_cents, priority')
+      .select('id, plan_id, company_id, supplier_key, supplier_name, planned_cents, priority, row_ids')
       .in('plan_id', plans.map(p => p.id))
     if (error) throw new Error(error.message)
     for (const r of data ?? []) planSuppliers.push({
       id: r.id, planId: r.plan_id, companyId: r.company_id, key: `${r.company_id}|${r.supplier_key}`,
-      name: r.supplier_name, plannedCents: r.planned_cents, priority: r.priority,
+      name: r.supplier_name, plannedCents: r.planned_cents, priority: r.priority, rowIds: r.row_ids ?? [],
     })
   }
   const transferRows = transfersRaw ?? []
@@ -239,6 +239,27 @@ export async function loadTreasury(supabase: Supa) {
     }
   })
   const paidInDecade = paidByKey(decadeTxs.filter(t => t.discretionary))
+  // Fatture del piano in corso chiuse dall'import senza un pagamento registrato: pagate fuori dal
+  // sistema. Contano come pagate (altrimenti il cruscotto toglierebbe una seconda volta), e si segnalano.
+  const importClosed: { key: string; rowId: string; name: string; cents: number }[] = []
+  {
+    const running = plans.find(p => p.key === decades[0].key)
+    const lines = running ? planSuppliers.filter(s => s.planId === running.id) : []
+    const ids = lines.flatMap(l => l.rowIds ?? [])
+    if (ids.length) {
+      const [{ data: closed }, { data: withTx }] = await Promise.all([
+        supabase.from('payment_schedule').select('id, amount_cents, supplier_name').in('id', ids).eq('status', 'paid'),
+        supabase.from('payment_transactions').select('payment_schedule_id').in('payment_schedule_id', ids),
+      ])
+      const hasTx = new Set((withTx ?? []).map(t => t.payment_schedule_id))
+      for (const r of closed ?? []) {
+        if (hasTx.has(r.id)) continue
+        const line = lines.find(l => l.rowIds?.includes(r.id))!
+        importClosed.push({ key: line.key, rowId: r.id, name: r.supplier_name ?? line.name, cents: Math.abs(r.amount_cents) })
+        paidInDecade.set(line.key, (paidInDecade.get(line.key) ?? 0) + Math.abs(r.amount_cents))
+      }
+    }
+  }
   // Importi del piano per la finestra: nella decade in corso solo quello che resta da pagare
   const planFor = (i: number): Map<string, number> | null => {
     const plan = plans.find(p => p.key === decades[i]?.key)
@@ -354,6 +375,6 @@ export async function loadTreasury(supabase: Supa) {
     today, decades, months, blocks, group, windows, creditors, rows,
     allCompanies, allAccounts, snapshot, coffaFresh: !!coffaFresh,
     noticesRaw: noticesRaw ?? [], requestsRaw: requestsRaw ?? [],
-    plans, planSuppliers, transfers, transferRows, decadeTxs,
+    plans, planSuppliers, transfers, transferRows, decadeTxs, importClosed, paidInDecade,
   }
 }

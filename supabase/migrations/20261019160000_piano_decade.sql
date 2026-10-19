@@ -88,3 +88,7 @@ SELECT * FROM (VALUES
    '/piano', 'mensile', '{6,16,26}'::int[], NULL::uuid, 'dopo', false, 'piano', DATE '2026-10-19', 35)
 ) AS v(title, description, href, freq, days, company_id, holiday, superseded, auto, start_date, sort)
 WHERE NOT EXISTS (SELECT 1 FROM daily_task_rules r WHERE r.title = v.title);
+
+-- Fatture di ogni fornitore fissate all'approvazione: si paga solo su quelle (mai sull'arretrato o sui
+-- RID futuri) e si riconoscono quelle che l'import chiude senza un pagamento registrato
+ALTER TABLE decade_plan_suppliers ADD COLUMN IF NOT EXISTS row_ids UUID[] NOT NULL DEFAULT '{}';

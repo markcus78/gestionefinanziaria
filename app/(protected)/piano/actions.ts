@@ -6,7 +6,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { applyPayment, residualCents } from '@/lib/payment-apply'
-import { supplierKey } from '@/lib/decadi'
 
 type Result = { success: true; id?: string } | { error: string }
 
@@ -73,9 +72,17 @@ export async function reorderSuppliers(lineIds: string[]): Promise<Result> {
   return done()
 }
 
-export async function setPlanStatus(planId: string, status: 'bozza' | 'approvato'): Promise<Result> {
+// All'approvazione si fissano le fatture di ogni fornitore: servono a riconoscere quelle che l'import
+// chiude senza un pagamento registrato (pagate fuori dal sistema)
+export async function setPlanStatus(planId: string, status: 'bozza' | 'approvato', rows: { lineId: string; rowIds: string[] }[] = []): Promise<Result> {
   const supabase = await createClient()
   const by = await who(supabase)
+  if (status === 'approvato') {
+    for (const r of rows) {
+      const { error } = await supabase.from('decade_plan_suppliers').update({ row_ids: r.rowIds }).eq('id', r.lineId).eq('plan_id', planId)
+      if (error) return { error: error.message }
+    }
+  }
   const { error } = await supabase.from('decade_plans').update(status === 'approvato'
     ? { status, approved_by: by, approved_at: new Date().toISOString() }
     : { status, approved_by: null, approved_at: null }).eq('id', planId)
@@ -119,39 +126,34 @@ export async function setTransferPaid(id: string, paidDate: string | null): Prom
 
 // ─── Pagamenti ───────────────────────────────────────────────────────────────
 
-// Pagamento a un fornitore del piano: si registra sulle sue partite aperte, dalla più vecchia,
-// passando da applyPayment (come le quote dell'arretrato). La nota dice a quale piano appartiene.
+// Pagamento a un fornitore del piano: si registra solo sulle sue fatture del piano (quelle della
+// finestra, dalla più vecchia), mai sull'arretrato né sui RID futuri. Il residuo si rilegge qui.
 export async function paySupplier(input: {
-  companyId: string; supplierKey: string; paidDate: string; cents: number; planLabel: string
+  companyId: string; rowIds: string[]; paidDate: string; cents: number; planLabel: string
 }): Promise<Result> {
   if (!isDate(input.paidDate)) return { error: 'Data non valida' }
   if (!(input.cents > 0)) return { error: 'Importo non valido' }
+  if (!input.rowIds.length) return { error: 'Nessuna fattura del piano per questo fornitore' }
   const supabase = await createClient()
-  let query = supabase.from('payment_schedule')
-    .select('id, supplier_name, amount_cents, paid_amount_cents, due_date, postponed_to')
-    .eq('company_id', input.companyId).eq('flow_type', 'out').eq('entry_type', 'accounting')
+  const { data: rows, error } = await supabase.from('payment_schedule')
+    .select('id, amount_cents, paid_amount_cents')
+    .in('id', input.rowIds).eq('company_id', input.companyId).eq('flow_type', 'out').eq('entry_type', 'accounting')
     .in('status', ['pending', 'scheduled', 'partial', 'postponed'])
-  query = input.supplierKey.startsWith('S:')
-    ? query.eq('supplier_id', input.supplierKey.slice(2))
-    : query.is('supplier_id', null)
-  const { data: rows, error } = await query
   if (error) return { error: error.message }
-  const mine = (rows ?? [])
-    .filter(r => input.supplierKey.startsWith('S:') || `N:${supplierKey(r.supplier_name ?? '')}` === input.supplierKey)
-    .map(r => ({ id: r.id, residual: residualCents(r.amount_cents, r.paid_amount_cents), date: r.postponed_to ?? r.due_date }))
-    .filter(r => r.residual > 0)
-    .sort((a, b) => a.date.localeCompare(b.date))
+  const byId = new Map((rows ?? []).map(r => [r.id, residualCents(r.amount_cents, r.paid_amount_cents)]))
   let remaining = Math.round(input.cents)
-  for (const r of mine) {
+  for (const id of input.rowIds) {
+    const residual = byId.get(id) ?? 0
     if (remaining <= 0) break
-    const pay = Math.min(r.residual, remaining)
-    const res = await applyPayment(supabase, r.id, input.paidDate, pay, input.planLabel)
+    if (residual <= 0) continue
+    const pay = Math.min(residual, remaining)
+    const res = await applyPayment(supabase, id, input.paidDate, pay, input.planLabel)
     if ('error' in res) return { error: res.error }
     remaining -= pay
   }
   if (remaining > 0) {
     done()
-    return { error: `Le fatture aperte del fornitore non bastano: restano ${(remaining / 100).toFixed(2)} € da registrare a mano` }
+    return { error: `Le fatture del piano non bastano: restano ${(remaining / 100).toFixed(2)} € da registrare a mano` }
   }
   revalidatePath('/schedule')
   revalidatePath('/payments')

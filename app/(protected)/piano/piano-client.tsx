@@ -19,6 +19,7 @@ export type PianoProps = {
   suppliers: {
     key: string; supplierKey: string; companyId: string; company: string; name: string; dovuto: number; oldest: string | null
     invoices: number; reference: number; lineId: string | null; planned: number; priority: number | null; paid: number; state: LineState
+    rowIds: string[]
   }[]
   perIntero: {
     kind: string; label: string; company: string; companyId: string | null; cents: number; date: string | null; rowId: string | null
@@ -29,6 +30,8 @@ export type PianoProps = {
   offPlan: { company: string; name: string; cents: number; why: 'non_nel_piano' | 'oltre'; dates: string[] }[]
   paidList: { id: string; date: string; company: string; name: string; cents: number; inPlan: boolean }[]
   running: boolean
+  hasPlan: boolean
+  importClosed: { name: string; cents: number }[]
   balanceDate: Record<string, string | null>
   appiaeId: string | null
   dueInputs: { companyId: string; supplierKey: string; name: string }[]
@@ -118,7 +121,7 @@ export default function PianoClient(p: PianoProps) {
                 <>
                   <button disabled={act.pending} onClick={() => act.run(() => createOrRefreshPlan(p.decade.month, p.decade.idx, p.dueInputs))}
                     className="px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">Aggiorna l&apos;elenco dei fornitori</button>
-                  <button disabled={act.pending} onClick={() => act.run(() => setPlanStatus(p.plan!.id, 'approvato'))}
+                  <button disabled={act.pending} onClick={() => act.run(() => setPlanStatus(p.plan!.id, 'approvato', p.suppliers.filter(s => s.lineId).map(s => ({ lineId: s.lineId!, rowIds: s.rowIds }))))}
                     className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50">Approva il piano</button>
                 </>
               )}
@@ -234,9 +237,22 @@ export default function PianoClient(p: PianoProps) {
       </section>
 
       {/* 5. Controllo */}
-      {p.running && (
+      {p.running && !p.hasPlan && (
+        <section>
+          <h2 className="text-sm font-semibold text-zinc-200 mb-2">5 · Controllo</h2>
+          <p className="text-xs text-zinc-500">Questa decade non ha un piano: il controllo comincia dalla prima decade pianificata.</p>
+        </section>
+      )}
+      {p.running && p.hasPlan && (
         <section>
           <h2 className="text-sm font-semibold text-zinc-200 mb-2">5 · Controllo: il piano è stato rispettato?</h2>
+          {p.importClosed.length > 0 && (
+            <div className="border border-amber-500/30 bg-amber-500/5 rounded-lg p-3 mb-3">
+              <p className="text-sm text-amber-300 mb-1">Fatture del piano chiuse dall&apos;import senza un pagamento registrato</p>
+              <p className="text-xs text-zinc-400 mb-1">Risultano pagate in contabilità ma qui non c&apos;è il pagamento: contano come pagate. Se il bonifico è uscito, va registrato con la data vera, altrimenti il saldo calcolato non lo vede.</p>
+              {p.importClosed.map((x, n) => <p key={n} className="text-sm text-zinc-200">{x.name}: {eur(x.cents)}</p>)}
+            </div>
+          )}
           {p.offPlan.length === 0
             ? <p className="text-xs text-emerald-400">Nessun pagamento fuori piano.</p>
             : (
@@ -354,7 +370,7 @@ function SupplierRow({ s, p, editable, act, planLabel, paying, setPaying }: {
       {paying && (
         <tr><td colSpan={10} className="pb-2">
           <PayForm defaultCents={s.planned - s.paid} balanceDate={p.balanceDate[s.companyId]} today={p.today} onClose={() => setPaying(false)}
-            onPay={(date, cents) => act.run(() => paySupplier({ companyId: s.companyId, supplierKey: s.supplierKey, paidDate: date, cents, planLabel }), () => setPaying(false))} />
+            onPay={(date, cents) => act.run(() => paySupplier({ companyId: s.companyId, rowIds: s.rowIds, paidDate: date, cents, planLabel }), () => setPaying(false))} />
         </td></tr>
       )}
     </>

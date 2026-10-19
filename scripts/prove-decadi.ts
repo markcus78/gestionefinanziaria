@@ -356,6 +356,8 @@ eq('Acea: bolletta singola non si conta', routeOut({ ...base, supplierCategory: 
     tx('5', 'S7', 'Vecchio', 40000, { note: 'Quota arretrato x' }), // quota del piano di rientro
   ]
   eq('pagato per fornitore', paidByKey(txs).get(kA), 90000)
+  eq('le quote dell arretrato non contano come pagato del piano', paidByKey(txs).get(planKey('AP', 'S7', 'Vecchio')), undefined)
+  eq('fatture del piano di Alfa in D1, dalla più vecchia', supplierDues(pwin, 0).find(d => d.key === kA)!.rowIds, ['p1', 'p2'])
   eq('fuori piano: Zeta intero, Alfa la parte in più', offPlan(pl, txs).map(o => [o.name, o.cents, o.why]), [['Zeta', 50000, 'non_nel_piano'], ['Alfa', 20000, 'oltre']])
 }
 

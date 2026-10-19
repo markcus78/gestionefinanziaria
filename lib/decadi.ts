@@ -928,6 +928,7 @@ export type PlanSupplier = {
   name: string
   plannedCents: number
   priority: number
+  rowIds?: string[]      // fatture del fornitore nel piano, fissate all'approvazione
 }
 
 export type SupplierDue = {
@@ -937,6 +938,7 @@ export type SupplierDue = {
   dovuto: number         // scaduto + in scadenza fino alla fine della decade, al netto di quanto previsto prima
   oldest: string | null  // scadenza più vecchia
   invoices: number
+  rowIds: string[]       // le fatture nella finestra, dalla più vecchia: solo su queste si registra il pagamento
 }
 
 // Fornitori sopra i 300 € con qualcosa da pagare entro la decade i (dal registro della finestra:
@@ -946,13 +948,16 @@ export function supplierDues(window: WindowResult, i: number): SupplierDue[] {
   for (const v of window.invoices) {
     if (!v.planKey || v.start > i || v.before[i] <= 0) continue
     const cur = by.get(v.planKey) ?? {
-      key: v.planKey, companyId: v.companyId ?? '', name: v.label, dovuto: 0, oldest: null, invoices: 0,
+      key: v.planKey, companyId: v.companyId ?? '', name: v.label, dovuto: 0, oldest: null, invoices: 0, rowIds: [] as string[],
     }
     cur.dovuto += v.before[i]
     cur.invoices++
+    if (v.rowId) cur.rowIds.push(v.rowId)
     if (v.date && (!cur.oldest || v.date < cur.oldest)) cur.oldest = v.date
     by.set(v.planKey, cur)
   }
+  const dateOf = new Map(window.invoices.map(v => [v.rowId, v.date ?? '']))
+  for (const d of by.values()) d.rowIds.sort((a, b) => (dateOf.get(a) ?? '').localeCompare(dateOf.get(b) ?? ''))
   return [...by.values()].sort((a, b) => b.dovuto - a.dovuto)
 }
 
@@ -1031,7 +1036,10 @@ export function txKey(t: Pick<DecadeTx, 'companyId' | 'supplierId' | 'supplierNa
 
 export function paidByKey(txs: DecadeTx[]): Map<string, number> {
   const m = new Map<string, number>()
-  for (const t of txs) m.set(txKey(t), (m.get(txKey(t)) ?? 0) + t.cents)
+  for (const t of txs) {
+    if (t.note?.startsWith('Quota arretrato')) continue
+    m.set(txKey(t), (m.get(txKey(t)) ?? 0) + t.cents)
+  }
   return m
 }
 
