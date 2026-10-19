@@ -131,7 +131,7 @@ Il calendario sta in un posto solo: la pagina **Lavoro quotidiano**, il pulsante
 
 1. **Impegni nuovi**: ogni spesa autorizzata (anche per email, anche con importo stimato) entra in Impegni **lo stesso giorno**, con il fornitore.
 2. **Pagamenti fatti**: segnarli come pagati — gli impegni con **Segna come pagato** in Impegni, il personale con **Pagato** in Staff, le fatture in **Pagamenti** (Paga, pagamento parziale, posticipo).
-3. **Incassi** arrivati in banca, nel menu Incassi.
+3. **Incassi** di Appiae e di Hangar, nel menu Incassi, per giorno di vendita (vedi la fase 2).
 4. **Pro forma pagate**: registrarle in Stime con **Pagata pro forma**.
 5. **Segnalazioni** del Lavoro quotidiano: guardarle e sistemarle.
 
@@ -140,21 +140,22 @@ Il calendario sta in un posto solo: la pagina **Lavoro quotidiano**, il pulsante
 1. In Spring: **rigenerare i flussi finanziari**, poi esportare **EFLUSSISCADENZARIO** per Appiae, Hangar, Wellness Town e Aries.
 2. In Gestione Finanziaria: **Scadenzario → Importa XLS** per ognuna delle quattro società, controllando le righe sparite (pagate sì / no).
 3. **Saldi delle banche** aggiornati in Tesoreria.
+4. **Affitti** arrivati con bonifico sul conto di Aries, nel menu Incassi.
 
 > Oggi l'import si fa a ogni decade e comunque prima di pianificare i pagamenti. Si sta decidendo se farlo ogni giorno o renderlo automatico (estrazione programmata da Spring).
 
 ### Ogni mese
 
 1. In **Staff**: **Distinta netti** (paghe), **Istruttori** (collaboratori e P.IVA, da Athletis) e **F24** di ogni società. Da quel momento la stima del personale diventa impegni.
-2. In **Stime**: controllare che gli importi siano ancora giusti (bollette, personale, F24).
+2. In **Stime**: controllare che gli importi siano ancora giusti (bollette, personale, F24, e fra gli incassi il bar di Hangar e gli affitti dai contratti attivi).
 
 ### Come funziona il Lavoro quotidiano
 
 - **Da fare oggi**: le attività del giorno e quelle rimaste indietro, con «in ritardo di N giorni». Si spunta il cerchio quando è fatta; se non è fatta, resta il giorno dopo.
 - **Sabato, domenica e festivi** (compresi Pasquetta e il 29 giugno) non si lavora: un'attività che cade lì si sposta al giorno lavorativo **dopo** (per esempio l'import) o **prima** (paghe e F24, che scadono il 16).
-- **Si chiudono da sole** l'import dello scadenzario, i saldi, le paghe, i collaboratori e gli F24: appena il caricamento c'è, il sistema lo vede.
+- **Si chiudono da sole** l'import dello scadenzario, i saldi, le paghe, i collaboratori, gli F24 e gli incassi: appena il caricamento c'è, il sistema lo vede.
 - Per l'import e i saldi conta solo l'ultima volta: se l'import dell'11 salta, quello del 21 lo copre.
-- **Segnalazioni**: doppioni fra impegni e fatture dello stesso fornitore, stessa fattura due volte, spese senza fornitore, impegni scaduti e non pagati, date impossibili, richieste da decidere. Quando una cosa è giusta così, **«visto»** la toglie; ricompare solo se cambia.
+- **Segnalazioni**: doppioni fra impegni e fatture dello stesso fornitore, stessa fattura due volte, spese senza fornitore, impegni scaduti e non pagati, date impossibili, richieste da decidere, **giorni di vendita senza incassi registrati**. Quando una cosa è giusta così, **«visto»** la toglie; ricompare solo se cambia.
 
 ### Cose che non si usano più
 
@@ -217,6 +218,14 @@ Quando arrivano in banca:
 - Se l'arrivo cade di **sabato o di domenica**, va al **lunedì**. Per esempio, il POS del venerdì e del sabato arriva il lunedì; l'Alma del sabato e della domenica arriva il lunedì della settimana dopo.
 
 I giorni di ogni canale si cambiano in **Impostazioni → Canali di incasso**.
+
+Nel **Lavoro quotidiano** ci sono tre voci, che si chiudono da sole quando gli incassi sono registrati:
+
+- **Registra gli incassi di Appiae**: ogni giorno lavorativo;
+- **Registra gli incassi di Hangar**: ogni giorno lavorativo;
+- **Registra i bonifici degli affitti (Aries)**: a ogni decade (il 1, l'11 e il 21).
+
+C'è anche una segnalazione, **«Giorni di vendita senza incassi registrati»**: un giorno saltato in mezzo agli altri. È importante, perché la Tesoreria considera coperti tutti i giorni fino all'ultimo registrato, e quel giorno sparirebbe dalla cassa. Se quel giorno eravamo chiusi, si segna **«visto»**.
 
 > Non serve più spuntare gli incassi come «accreditati»: la Tesoreria li conta alla data di arrivo prevista. Se un canale arriva in giorni diversi da quelli scritti, lo si vede dallo scarto con il saldo della banca (vedi sotto).
 

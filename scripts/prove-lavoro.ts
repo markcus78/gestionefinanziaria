@@ -1,5 +1,5 @@
 // Prove del lavoro quotidiano: node scripts/prove-lavoro.ts
-import { isWorkingDay, shiftToWorkingDay, planTasks, type TaskRule } from '../lib/lavoro.ts'
+import { isWorkingDay, shiftToWorkingDay, planTasks, missingSaleDays, type TaskRule } from '../lib/lavoro.ts'
 
 let ok = 0, ko = 0
 function eq(name: string, got: unknown, want: unknown) {
@@ -16,6 +16,14 @@ eq('8 dicembre no', isWorkingDay('2026-12-08'), false)
 eq('import dell\'11/10 (domenica) slitta a lunedì 12', shiftToWorkingDay('2026-10-11', 'dopo'), '2026-10-12')
 eq('F24 del 15/11 (domenica) si anticipa a venerdì 13', shiftToWorkingDay('2026-11-15', 'prima'), '2026-11-13')
 eq('1 novembre (domenica, festa) slitta a lunedì 2', shiftToWorkingDay('2026-11-01', 'dopo'), '2026-11-02')
+
+// Giorni di vendita senza incassi (Marco, 19/10): solo i buchi fra il primo e l'ultimo giorno registrato
+eq('nessun buco', missingSaleDays(['2026-10-16', '2026-10-17', '2026-10-18'], '2026-09-19'), [])
+eq('buco in mezzo, anche di domenica', missingSaleDays(['2026-10-10', '2026-10-13', '2026-10-13'], '2026-09-19'), ['2026-10-11', '2026-10-12'])
+eq("dopo l'ultimo registrato non è un buco (è la voce di oggi)", missingSaleDays(['2026-10-16'], '2026-09-19'), [])
+eq('prima della finestra non si guarda', missingSaleDays(['2026-09-01', '2026-10-01', '2026-10-03'], '2026-09-30'), ['2026-09-30', '2026-10-02'])
+eq('si parte dal primo giorno registrato', missingSaleDays(['2026-10-16', '2026-10-18'], '2026-09-19'), ['2026-10-17'])
+eq('nessun incasso, nessun buco', missingSaleDays([], '2026-09-19'), [])
 
 const rule = (over: Partial<TaskRule>): TaskRule => ({
   id: 'r', title: 'R', description: null, href: null, freq: 'mensile', days: [1, 11, 21], companyId: null,

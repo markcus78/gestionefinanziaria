@@ -1,6 +1,6 @@
 // Lavoro quotidiano: letture dal database (attività e segnalazioni).
 import type { createClient } from '@/lib/supabase/server'
-import { planTasks, addDaysStr, type TaskRule, type DoneMap } from '@/lib/lavoro'
+import { planTasks, addDaysStr, missingSaleDays, type TaskRule, type DoneMap } from '@/lib/lavoro'
 import { loadPivaInvoiced } from '@/lib/piva-match'
 
 type Supa = Awaited<ReturnType<typeof createClient>>
@@ -20,13 +20,15 @@ export async function loadTasks(supabase: Supa, today: string) {
   const since = rules.reduce((m, r) => (r.startDate < m ? r.startDate : m), today)
   const from = addDaysStr(since, -45)
 
-  const [{ data: doneRaw }, { data: imports }, { data: staff }, { data: accounts }] = await Promise.all([
+  const [{ data: doneRaw }, { data: imports }, { data: staff }, { data: accounts }, { data: colls }] = await Promise.all([
     supabase.from('daily_task_done').select('rule_id, period_key, done_by, done_at').gte('period_key', from),
     supabase.from('import_batches').select('company_id, imported_at').gte('imported_at', from),
     supabase.from('payment_schedule').select('company_id, commitment_type, reference_month')
       .eq('entry_type', 'commitment').in('commitment_type', ['salary_item', 'collab_item', 'piva_item', 'tax_item'])
       .gte('reference_month', from.slice(0, 7)).not('document_number', 'like', 'BDG-%').neq('status', 'cancelled').limit(1000),
     supabase.from('bank_accounts').select('company_id, balance_date').eq('is_active', true),
+    // solo gli ultimi 45 giorni: le voci di incassi guardano oggi e le decadi recenti (resta sotto le 1000 righe)
+    supabase.from('daily_collections').select('company_id, created_at').gte('created_at', addDaysStr(today, -45)).limit(1000),
   ])
 
   const done: DoneMap = new Map((doneRaw ?? []).map(d => [`${d.rule_id}|${d.period_key}`, { by: d.done_by, at: d.done_at }]))
@@ -34,6 +36,7 @@ export async function loadTasks(supabase: Supa, today: string) {
   const importDates = (imports ?? []).map(i => ({ company: i.company_id as string, date: romeDate(i.imported_at) }))
   const staffKeys = new Set((staff ?? []).map(s => `${s.company_id}|${s.commitment_type}|${s.reference_month}`))
   const balanceDates = (accounts ?? []).map(a => ({ company: a.company_id as string, date: a.balance_date as string | null }))
+  const collDates = (colls ?? []).map(c => ({ company: c.company_id as string, date: romeDate(c.created_at) }))
 
   // Il sistema vede da solo che è fatta (un flag a mano senza il caricamento non serve)
   const autoDone = (rule: TaskRule, key: string): boolean => {
@@ -47,6 +50,8 @@ export async function loadTasks(supabase: Supa, today: string) {
       case 'paghe': return staffKeys.has(`${c}|salary_item|${month}`)
       case 'collaboratori': return staffKeys.has(`${c}|collab_item|${month}`) || staffKeys.has(`${c}|piva_item|${month}`)
       case 'f24': return staffKeys.has(`${c}|tax_item|${month}`)
+      // incassi: registrati quel giorno (le voci di ogni giorno) o dalla data prevista in poi (gli affitti alle decadi)
+      case 'incassi': return collDates.some(i => i.company === c && i.date >= (rule.freq === 'giornaliera' ? key : from2))
       default: return false
     }
   }
@@ -182,12 +187,34 @@ export async function loadSignals(supabase: Supa, today: string): Promise<Signal
     detail: `${eur(r.amount_cents)} per il ${it(r.expected_date)}${r.requested_by ? ` · chiesta da ${r.requested_by}` : ''}`, href: '/richieste',
   }))
 
+  // 7. Giorni di vendita senza incassi registrati (Appiae e Hangar, ultimi 30 giorni)
+  const buchi: SignalItem[] = []
+  {
+    const { data: daily } = await supabase.from('daily_task_rules').select('company_id')
+      .eq('active', true).eq('freq', 'giornaliera').eq('auto', 'incassi')
+    const ids = [...new Set((daily ?? []).map(r => r.company_id as string).filter(Boolean))]
+    if (ids.length) {
+      const from = addDaysStr(today, -30)
+      const { data: rows } = await supabase.from('daily_collections').select('company_id, collection_date')
+        .in('company_id', ids).gte('collection_date', from).limit(1000)
+      for (const id of ids) {
+        const days = missingSaleDays((rows ?? []).filter(r => r.company_id === id).map(r => r.collection_date as string), from)
+        for (const d of days) buchi.push({
+          key: `incassi-mancanti:${id}:${d}`, label: `${code.get(id)} · ${it(d)}`,
+          detail: 'nessun incasso registrato per questo giorno di vendita',
+          href: `/operations?company=${code.get(id)}&month=${+d.slice(5, 7)}&year=${d.slice(0, 4)}`,
+        })
+      }
+    }
+  }
+
   const all: Signal[] = [
     { id: 'doppioni', title: 'Possibili doppioni: impegno e fattura dello stesso fornitore', why: 'Se è la stessa spesa, annulla l\'impegno: conta la fattura.', href: '/impegni', dismissable: true, items: doppioni },
     { id: 'dup-scad', title: 'Stessa fattura due volte nello scadenzario', why: 'Controlla in contabilità e reimporta lo scadenzario.', href: '/schedule', dismissable: true, items: dup },
     { id: 'senza-fornitore', title: 'Spese senza fornitore', why: 'Senza fornitore la fattura non viene riconosciuta e si conta due volte: apri la modifica e scegli il fornitore (o «fornitore nuovo»).', href: '/impegni', dismissable: false, items: senza },
     { id: 'scaduti', title: 'Impegni scaduti da più di 7 giorni e non pagati', why: 'Se sono pagati, segnali come pagati; se sono ancora da pagare, «visto».', href: '/impegni', dismissable: true, items: scaduti },
     { id: 'date', title: 'Date impossibili', why: 'Una data sbagliata sposta il pagamento in un altro anno: correggila.', href: '/schedule', dismissable: true, items: date },
+    { id: 'incassi-mancanti', title: 'Giorni di vendita senza incassi registrati', why: "La Tesoreria considera coperti tutti i giorni fino all'ultimo registrato: un giorno saltato sparisce dalla cassa. Registralo; se quel giorno eravamo chiusi, «visto».", href: '/operations', dismissable: true, items: buchi },
     { id: 'richieste', title: 'Richieste di spesa da decidere', why: 'Finché è in attesa non pesa sulla cassa: portala a chi decide.', href: '/richieste', dismissable: false, items: richieste },
   ]
   return all

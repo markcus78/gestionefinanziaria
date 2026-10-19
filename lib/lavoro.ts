@@ -21,7 +21,7 @@ export type TaskRule = {
   companyId: string | null
   holiday: 'prima' | 'dopo'
   superseded: boolean
-  auto: 'import' | 'saldi' | 'paghe' | 'collaboratori' | 'f24' | null
+  auto: 'import' | 'saldi' | 'paghe' | 'collaboratori' | 'f24' | 'incassi' | null
   startDate: string
   sort: number
 }
@@ -104,6 +104,21 @@ export function occurrencesOf(rule: TaskRule, today: string, horizonDays: number
       out.push({ key, due })
     }
   }
+  return out
+}
+
+// Giorni di vendita senza incassi registrati, fra il primo e l'ultimo giorno registrato (Marco, 19/10):
+// un buco in mezzo è grave perché la Tesoreria considera coperti tutti i giorni fino all'ultimo
+// registrato (Coffa e la stima del bar non li contano più), quindi quei soldi spariscono dalla cassa.
+// Si vende tutti i giorni, anche sabato e domenica: i giorni di chiusura si segnano «visto».
+export function missingSaleDays(saleDates: string[], from: string): string[] {
+  const set = new Set(saleDates)
+  const last = [...set].sort().pop()
+  if (!last) return []
+  const first = [...set].sort()[0]
+  const start = first > from ? first : from
+  const out: string[] = []
+  for (let d = start; d < last; d = addDaysStr(d, 1)) if (!set.has(d)) out.push(d)
   return out
 }
 
