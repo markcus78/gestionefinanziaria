@@ -1024,7 +1024,8 @@ export type LineStatus = { paid: number; state: LineState }
 
 export function lineStatus(planned: number, paid: number, today: string, decadeEnd: string): LineStatus {
   if (paid > planned + 100) return { paid, state: 'oltre' }   // tolleranza di 1 €
-  if (planned > 0 && paid >= planned - 100) return { paid, state: 'pagato' }
+  // tolleranza di 1 € sugli arrotondamenti, ma con qualcosa di pagato (un piano da 1 € non è già pagato)
+  if (planned > 0 && paid > 0 && paid >= planned - 100) return { paid, state: 'pagato' }
   if (planned === 0) return { paid, state: 'pagato' }
   if (today > decadeEnd) return { paid, state: 'scoperto' }
   return { paid, state: paid > 0 ? 'in_parte' : 'da_pagare' }

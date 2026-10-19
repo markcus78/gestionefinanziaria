@@ -344,6 +344,7 @@ eq('Acea: bolletta singola non si conta', routeOut({ ...base, supplierCategory: 
   eq('pagato (tolleranza 1 €)', lineStatus(70000, 69950, '2026-10-08', '2026-10-10').state, 'pagato')
   eq('scoperto a decade finita', lineStatus(70000, 20000, '2026-10-11', '2026-10-10').state, 'scoperto')
   eq('oltre il deciso', lineStatus(70000, 90000, '2026-10-08', '2026-10-10').state, 'oltre')
+  eq('piano da 1 € non pagato: da pagare', lineStatus(100, 0, '2026-10-08', '2026-10-10').state, 'da_pagare')
   // fuori piano
   const tx = (id: string, sup: string | null, name: string, cents: number, extra: Partial<DecadeTx> = {}): DecadeTx => ({
     id, rowId: 'r' + id, companyId: 'AP', supplierId: sup, supplierName: name, paidDate: '2026-10-05', cents, note: null, discretionary: true, ...extra,
