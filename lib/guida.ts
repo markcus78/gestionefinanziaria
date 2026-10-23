@@ -59,11 +59,21 @@ Sono le **fatture vere** registrate dalla contabilità in Spring, con la loro da
 
 ### 2. Gli impegni (menu Impegni e menu Staff)
 
-Un impegno è una **spesa già decisa** che nello scadenzario non c'è ancora. Si inserisce con **Nuovo impegno** scegliendo il tipo:
+Un impegno è una **spesa già decisa** che nello scadenzario non c'è ancora. Le uscite sono di due tipi, e il tipo dell'impegno dice quale:
+
+**Passa dallo scadenzario** (arriverà una fattura):
 
 - **Spesa verso un fornitore** — un acquisto, un lavoro, un preventivo accettato. **Diventerà una fattura.** Il fornitore è obbligatorio: si sceglie dall'elenco (sono i fornitori dello scadenzario di quella società). Se è un fornitore che non ci ha mai fatturato, si scrive il nome e si spunta **«fornitore nuovo»**.
-- **Rata di finanziamento** — mutui, prestiti di banche o soci. Non passa mai dallo scadenzario e si paga per intero.
-- **Tasse e tributi** — cartelle, rateizzazioni con l'Agenzia delle Entrate. Non passa dallo scadenzario e si paga per intero.
+
+**Non passa mai dallo scadenzario** (non arriverà nessuna fattura; si paga sempre per intero, nel muro):
+
+- **Rata di finanziamento** — mutui, prestiti di banche o soci.
+- **Tasse e tributi** — cartelle, rateizzazioni con l'Agenzia delle Entrate.
+- **Assicurazione** — i premi delle polizze: la compagnia rilascia la quietanza, non la fattura. Si scrive il nome della compagnia (non serve sceglierlo dall'elenco).
+- **Tesseramenti e affiliazioni** — affiliazioni e tesseramenti a enti e federazioni. Servono per il regime fiscale sportivo, quindi non si saltano.
+- **Personale e F24** — non si inseriscono da qui ma dal menu **Staff** (vedi sotto).
+
+Si inserisce con **Nuovo impegno** scegliendo il tipo. Se un impegno ha il tipo sbagliato, si apre la modifica e si cambia il tipo.
 
 Per una spesa che si ripete (ogni mese, ogni trimestre, ogni anno) si usa la spunta **ricorrente**: il sistema crea tutte le rate.
 
@@ -86,7 +96,7 @@ Ogni stima ha:
 - **come si divide fra le decadi**: un terzo per decade, tutto nella 1ª, nella 2ª o nella 3ª decade, oppure le tre percentuali scritte a mano;
 - **il tipo**:
   - **Incasso** — un'entrata stimata (per esempio il bar);
-  - **Muro** — si paga sempre per intero, prima dei fornitori (personale, F24, utenze);
+  - **Muro** — si paga sempre per intero, prima dei fornitori (personale, F24, utenze, rate, tributi, assicurazioni, tesseramenti e affiliazioni);
   - **Automatico** — parte da solo dalla banca (mutuo, commissioni, addebiti diretti);
   - **Fornitori** — fatture che arriveranno e che si possono ridurre quando la cassa è stretta;
 - **il fornitore**, quando la stima riguarda un fornitore preciso (per esempio Forini per la luce e il gas).
@@ -316,7 +326,7 @@ Perché i conti di Wellness Town sono bloccati e gli affitti arrivano sul conto 
 
 L'ordine è sempre questo:
 
-1. **Muro** (personale, utenze, F24, rate, piani di rientro) e **provviste** fra società;
+1. **Muro** (personale, utenze, F24, rate, piani di rientro, tributi, assicurazioni, tesseramenti e affiliazioni) e **provviste** fra società;
 2. **automatiche** (RID, RI.BA.): escono da sole, non si fa niente;
 3. **quote dell'arretrato**;
 4. **fornitori**, nell'ordine deciso in call, **entro la fine della decade**.

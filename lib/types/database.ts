@@ -237,7 +237,7 @@ export type AccessLog = {
   created_at: string
 }
 
-export type CommitmentType = 'forecast' | 'salary_item' | 'collab_item' | 'tax_item' | 'manual' | 'extra_item' | 'piva_item' | 'loan_item' | 'tributi_item'
+export type CommitmentType = 'forecast' | 'salary_item' | 'collab_item' | 'tax_item' | 'manual' | 'extra_item' | 'piva_item' | 'loan_item' | 'tributi_item' | 'insurance_item' | 'membership_item'
 
 export type RecurringTemplate = {
   id: string

@@ -110,9 +110,11 @@ export function f24Phase(dueDate: string, today: string): 'muro' | 'f24' | 'stoc
 }
 
 // Impegni che non passano mai dallo scadenzario e si pagano per intero (muro): personale, F24,
-// rate di finanziamenti (banche, soci, altri) e tasse e tributi (cartelle, rateizzazioni).
+// rate di finanziamenti (banche, soci, altri), tasse e tributi (cartelle, rateizzazioni),
+// assicurazioni (premi con quietanza, senza fattura) e tesseramenti e affiliazioni (servono per
+// il regime fiscale sportivo) — regola di Marco, 23/10/2026.
 // Una lista sola: la usano l'instradamento e la pagina (stime sostituite dalle righe vere).
-export const MURO_COMMITMENT_TYPES = ['salary_item', 'extra_item', 'collab_item', 'piva_item', 'tax_item', 'loan_item', 'tributi_item']
+export const MURO_COMMITMENT_TYPES = ['salary_item', 'extra_item', 'collab_item', 'piva_item', 'tax_item', 'loan_item', 'tributi_item', 'insurance_item', 'membership_item']
 const STAFF_TYPES = new Set(MURO_COMMITMENT_TYPES)
 
 export function effectiveDate(r: Pick<OutRow, 'dueDate' | 'postponedTo'>): string {

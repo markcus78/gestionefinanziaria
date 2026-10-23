@@ -53,6 +53,8 @@ eq('utenza scaduta da oltre un mese in arretrato', routeOut({ ...base, supplierC
 eq('budget BDG escluso', routeOut({ ...base, entryType: 'commitment', documentNumber: 'BDG-1', commitmentType: 'salary_item' }, ctx), 'escluso')
 eq('collaboratore nel muro', routeOut({ ...base, entryType: 'commitment', commitmentType: 'collab_item' }, ctx), 'muro')
 eq('impegno manuale pianificato', routeOut({ ...base, entryType: 'commitment', commitmentType: 'manual' }, ctx), 'pianificato')
+eq('assicurazione nel muro', routeOut({ ...base, entryType: 'commitment', commitmentType: 'insurance_item' }, ctx), 'muro')
+eq('tesseramenti e affiliazioni nel muro', routeOut({ ...base, entryType: 'commitment', commitmentType: 'membership_item' }, ctx), 'muro')
 eq('intercompany escluso', routeOut({ ...base, isIntercompany: true }, ctx), 'escluso')
 eq('fornitore escluso', routeOut({ ...base, excludeFromTreasury: true }, ctx), 'escluso')
 eq('posticipata usa la nuova data', routeOut({ ...base, paymentMethod: 'RID', postponedTo: '2026-11-05' }, ctx), 'automatico')

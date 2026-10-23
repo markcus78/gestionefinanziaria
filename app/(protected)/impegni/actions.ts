@@ -12,19 +12,24 @@ export type CommitmentInput = {
   amount_cents: number   // negativo per out, positivo per in
   flow_type: 'in' | 'out'
   notes: string | null
-  // spesa (null/manual), rata di finanziamento, tasse e tributi: queste due non passano mai
-  // dallo scadenzario e in Tesoreria si pagano per intero (muro)
-  commitment_type?: 'manual' | 'loan_item' | 'tributi_item' | null
+  // spesa verso un fornitore (null/manual) = passa dallo scadenzario (diventerà fattura);
+  // gli altri non passano mai dallo scadenzario e in Tesoreria si pagano per intero (muro)
+  commitment_type?: ManualKind | null
   // fornitore che non ha ancora fatture nello scadenzario: l'impegno resta da collegare
   new_supplier?: boolean
 }
+
+// Tipi che si inseriscono e si cambiano da Impegni (il personale e gli F24 arrivano da Staff)
+const MANUAL_KINDS = ['manual', 'loan_item', 'tributi_item', 'insurance_item', 'membership_item'] as const
+type ManualKind = typeof MANUAL_KINDS[number]
 
 type Supa = Awaited<ReturnType<typeof createClient>>
 
 // Fornitore obbligatorio sulle spese in uscita (Marco, 15/10/2026): senza fornitore, quando la fattura
 // arriva dallo scadenzario il sistema non la riconosce e la spesa si conta due volte. Il nome si
 // sceglie fra i fornitori dello scadenzario di quella società; se non ha ancora fatture si dichiara
-// «fornitore nuovo». Rate di finanziamento e tributi non passano dallo scadenzario: niente obbligo.
+// «fornitore nuovo». Gli impegni che non passano dallo scadenzario (rate, tributi, assicurazioni,
+// tesseramenti): niente obbligo.
 function needsSupplier(type: string | null | undefined, flow: 'in' | 'out') {
   return flow === 'out' && (!type || type === 'manual')
 }
@@ -82,7 +87,7 @@ export async function createCommitment(input: CommitmentInput): Promise<Commitme
 
 export async function updateCommitment(
   id: string,
-  input: Pick<CommitmentInput, 'supplier_name' | 'account_description' | 'due_date' | 'amount_cents' | 'flow_type' | 'notes' | 'new_supplier'>
+  input: Pick<CommitmentInput, 'supplier_name' | 'account_description' | 'due_date' | 'amount_cents' | 'flow_type' | 'notes' | 'new_supplier' | 'commitment_type'>
 ): Promise<CommitmentResult> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -91,9 +96,14 @@ export async function updateCommitment(
   const { data: row, error: e0 } = await supabase.from('payment_schedule')
     .select('company_id, commitment_type').eq('id', id).single()
   if (e0 || !row) return { error: e0?.message ?? 'Impegno non trovato' }
+  // il tipo si cambia solo fra quelli di Impegni (personale, F24 e stime restano come sono)
+  const current = (row.commitment_type ?? 'manual') as string
+  const editable = (MANUAL_KINDS as readonly string[]).includes(current)
+  const kind = editable && input.commitment_type && (MANUAL_KINDS as readonly string[]).includes(input.commitment_type)
+    ? input.commitment_type : row.commitment_type
   const sup = await resolveSupplier(supabase, {
     company_id: row.company_id, supplier_name: input.supplier_name, flow_type: input.flow_type,
-    commitment_type: row.commitment_type as CommitmentInput['commitment_type'], new_supplier: input.new_supplier,
+    commitment_type: kind as CommitmentInput['commitment_type'], new_supplier: input.new_supplier,
   })
   if ('error' in sup) return sup
 
@@ -108,6 +118,7 @@ export async function updateCommitment(
       amount_out_cents: input.flow_type === 'out' ? Math.abs(input.amount_cents) : 0,
       flow_type: input.flow_type,
       postpone_notes: input.notes,
+      commitment_type: kind,
       ...sup,
     })
     .eq('id', id)

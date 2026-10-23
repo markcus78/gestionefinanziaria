@@ -36,13 +36,32 @@ const COMMITMENT_TYPE_BADGE: Partial<Record<NonNullable<PaymentScheduleItem['com
   piva_item:    { label: 'P.IVA',        cls: 'bg-purple-500/20 text-purple-400' },
   loan_item:    { label: 'Finanziamento', cls: 'bg-teal-500/20 text-teal-400' },
   tributi_item: { label: 'Tributi',      cls: 'bg-red-500/20 text-red-400' },
+  insurance_item:  { label: 'Assicurazione', cls: 'bg-sky-500/20 text-sky-400' },
+  membership_item: { label: 'Tesseramenti',  cls: 'bg-lime-500/20 text-lime-400' },
 }
 
-const KIND_OPTIONS: { value: 'manual' | 'loan_item' | 'tributi_item'; label: string; hint: string }[] = [
-  { value: 'manual',       label: 'Spesa verso un fornitore', hint: 'diventerà una fattura dello scadenzario' },
-  { value: 'loan_item',    label: 'Rata di finanziamento',    hint: 'mutui, prestiti bancari, soci o altri: non passa dallo scadenzario, si paga per intero' },
-  { value: 'tributi_item', label: 'Tasse e tributi',          hint: 'cartelle, rateizzazioni con l\'Agenzia delle Entrate: non passa dallo scadenzario, si paga per intero' },
+// Le uscite sono di due tipi (Marco, 23/10/2026): quelle che passano dallo scadenzario (le fatture)
+// e quelle che non ci passano mai. Il personale e gli F24 non si inseriscono qui ma da Staff.
+type Kind = 'manual' | 'loan_item' | 'tributi_item' | 'insurance_item' | 'membership_item'
+const KIND_OPTIONS: { value: Kind; label: string; hint: string; group: 'fattura' | 'senza' }[] = [
+  { value: 'manual',          label: 'Spesa verso un fornitore',    group: 'fattura', hint: 'diventerà una fattura dello scadenzario' },
+  { value: 'loan_item',       label: 'Rata di finanziamento',       group: 'senza',   hint: 'mutui, prestiti bancari, soci o altri: non passa dallo scadenzario, si paga per intero' },
+  { value: 'tributi_item',    label: 'Tasse e tributi',             group: 'senza',   hint: 'cartelle, rateizzazioni con l\'Agenzia delle Entrate: non passa dallo scadenzario, si paga per intero' },
+  { value: 'insurance_item',  label: 'Assicurazione',               group: 'senza',   hint: 'premi delle polizze (la compagnia rilascia la quietanza, non la fattura): non passa dallo scadenzario, si paga per intero. Scrivi il nome della compagnia' },
+  { value: 'membership_item', label: 'Tesseramenti e affiliazioni', group: 'senza',   hint: 'affiliazioni e tesseramenti a enti e federazioni, che servono per il regime fiscale sportivo: non passa dallo scadenzario, si paga per intero' },
 ]
+const KIND_VALUES = new Set<string>(KIND_OPTIONS.map(k => k.value))
+
+function KindOptions() {
+  return <>
+    <optgroup label="Passa dallo scadenzario (fattura)">
+      {KIND_OPTIONS.filter(k => k.group === 'fattura').map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
+    </optgroup>
+    <optgroup label="Non passa dallo scadenzario">
+      {KIND_OPTIONS.filter(k => k.group === 'senza').map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
+    </optgroup>
+  </>
+}
 
 const STATUS_BADGE: Record<PaymentStatus, { label: string; cls: string }> = {
   pending:   { label: 'Attivo',      cls: 'bg-amber-500/20 text-amber-400' },
@@ -133,7 +152,7 @@ type FormState = {
   is_recurring: boolean
   frequency: 'monthly' | 'quarterly' | 'annual'
   months_ahead: number
-  kind: 'manual' | 'loan_item' | 'tributi_item'
+  kind: Kind
   new_supplier: boolean
 }
 
@@ -335,7 +354,7 @@ function CommitmentsSection({
       is_recurring: false,
       frequency: 'monthly',
       months_ahead: 12,
-      kind: (item.commitment_type === 'loan_item' || item.commitment_type === 'tributi_item') ? item.commitment_type : 'manual',
+      kind: item.commitment_type && KIND_VALUES.has(item.commitment_type) ? item.commitment_type as Kind : 'manual',
       new_supplier: item.new_supplier ?? false,
     })
     setEditErr('')
@@ -356,6 +375,7 @@ function CommitmentsSection({
       flow_type: editForm.flow_type,
       notes: editForm.notes || null,
       new_supplier: editForm.new_supplier,
+      commitment_type: editForm.kind,
     })
     setEditSaving(false)
     if ('error' in res) return setEditErr(res.error)
@@ -542,6 +562,13 @@ function CommitmentsSection({
                             <input type="text" value={editForm.account_description} placeholder="Descrizione"
                               onChange={e => setEditForm(p => ({ ...p, account_description: e.target.value }))}
                               className="w-48 px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-xs text-zinc-400 focus:outline-none" />
+                            {(!item.commitment_type || KIND_VALUES.has(item.commitment_type)) && (
+                              <select value={editForm.kind} title="Tipo di impegno"
+                                onChange={e => setEditForm(p => ({ ...p, kind: e.target.value as Kind }))}
+                                className="w-48 px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-xs text-zinc-200 focus:outline-none">
+                                <KindOptions />
+                              </select>
+                            )}
                           </div>
                         </td>
                         <td className="px-3 py-2">
@@ -677,7 +704,7 @@ function CommitmentsSection({
                 <label className="block text-xs text-zinc-400 mb-1">Tipo *</label>
                 <select value={form.kind} onChange={e => setForm(p => ({ ...p, kind: e.target.value as FormState['kind'] }))}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-                  {KIND_OPTIONS.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
+                  <KindOptions />
                 </select>
                 <p className="text-[11px] text-zinc-500 mt-1">{KIND_OPTIONS.find(k => k.value === form.kind)?.hint}</p>
               </div>
