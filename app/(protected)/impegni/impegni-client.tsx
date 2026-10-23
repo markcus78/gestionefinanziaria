@@ -258,6 +258,10 @@ function CommitmentsSection({
       if (monthly <= 0) return setFormErr('Inserisci l\'importo stimato al mese')
       const name = form.supplier_name.trim()
       const sup = suppliers.find(s => s.company_id === form.company_id && s.supplier_name === name)
+      // una stima di tipo Fornitori senza fornitore vale per tutti gli «altri fornitori»: dal dialogo
+      // si crea solo con un fornitore dell'elenco (quella generica si gestisce nella scheda Stimati)
+      if (estimateGroup(form) === 'fornitori' && !sup)
+        return setFormErr('Per una stima fra i Fornitori scegli il fornitore dall\'elenco dello scadenzario')
       setSaving(true)
       const res = await createEstimate({
         companyId: form.company_id, label: name, kind: estimateGroup(form),
@@ -774,7 +778,7 @@ function CommitmentsSection({
                   onChange={e => setForm(p => ({ ...p, supplier_name: e.target.value }))}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                 <SupplierList id="sup-new" companyId={form.company_id} suppliers={suppliers} />
-                {needsSupplier(form.kind, form.flow_type) && (
+                {needsSupplier(form.kind, form.flow_type) && !(form.estimated && form.is_recurring) && (
                   <label className="flex items-center gap-1.5 mt-1 text-[11px] text-zinc-400">
                     <input type="checkbox" checked={form.new_supplier}
                       onChange={e => setForm(p => ({ ...p, new_supplier: e.target.checked }))} />

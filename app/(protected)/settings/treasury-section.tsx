@@ -110,7 +110,9 @@ function EstimateRow({ e, suppliers, scope }: { e: TreasuryEstimate; suppliers: 
             </select>}
       </td>
       <td className="px-3 py-2">
-        {takesSupplier({ kind, replaced_by: e.replaced_by })
+        {kind === 'incasso'
+          ? <span className="text-[11px] text-zinc-600">—</span>
+          : takesSupplier({ kind, replaced_by: e.replaced_by })
           ? <SupplierInput value={supplier} onChange={setSupplier} suppliers={suppliers} listId={`sup-${e.id}`}
               placeholder={kind === 'fornitori' ? 'vuoto = altri fornitori' : 'nessuno'} />
           : <span className="text-[11px] text-zinc-600">righe di Staff/Impegni</span>}
