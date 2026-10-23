@@ -921,7 +921,7 @@ function CommitmentsSection({
                 </button>
                 <button type="submit" disabled={saving}
                   className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors disabled:opacity-50">
-                  {saving ? 'Salvataggio...' : form.is_recurring ? `Crea ${form.months_ahead} voci` : 'Crea impegno'}
+                  {saving ? 'Salvataggio...' : form.is_recurring && form.estimated ? 'Crea la stima mensile' : form.is_recurring ? `Crea ${form.months_ahead} rate` : 'Crea impegno'}
                 </button>
               </div>
             </form>
