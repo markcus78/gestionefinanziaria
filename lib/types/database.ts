@@ -277,6 +277,7 @@ export type TreasuryEstimate = {
   kind: 'incasso' | 'muro' | 'automatico' | 'fornitori'
   category: string
   monthly_cents: number
+  month_cents?: Record<string, number>   // importo per mese dell'anno, "1".."12" (vuoto = monthly_cents)
   pct_d1: number
   pct_d2: number
   pct_d3: number

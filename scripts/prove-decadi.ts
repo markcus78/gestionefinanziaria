@@ -1,7 +1,7 @@
 // Prove del calcolo a decadi: node scripts/prove-decadi.ts
 import {
   allocateWindow, suggestPct, supplierKey, groupBacklog, activeInstallments, splitPlan, backlogKey, f24Limit,
-  decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, computeBlock, sumBlocks, uncoveredShare, consumeByDecade,
+  decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, estimateForMonth, computeBlock, sumBlocks, uncoveredShare, consumeByDecade,
   planKey, supplierDues, blockSpace, suggestedTransfer, plannedRemaining, lineStatus, offPlan, paidByKey,
   type Estimate, type OutRow, type BlockInput, type Transfer, type DecadeTx, type PlanSupplier,
 } from '../lib/decadi.ts'
@@ -289,6 +289,29 @@ eq('Casali Marco escluso resta escluso', routeOut({ ...base, supplierAsStaff: tr
   eq('dicembre: 30.000 − 5.000 = 25.000', ut.decades.slice(6, 9).reduce((s, d) => s + d.rows.muro.items.find(i => i.estimateId === 'F')!.cents, 0), 2500000)
   eq('altri fornitori di novembre: 10.000 − 4.000 (non Forini, non personale)', ut.decades.slice(3, 6).reduce((s, d) => s + d.rows.nuoveFatture.total, 0), 600000)
   eq('ottobre: nessuna fattura, stima intera', ut.decades[1].rows.nuoveFatture.total + ut.decades[2].rows.nuoveFatture.total, 666600)
+}
+
+// ── Importi per mese dell'anno (Marco, 23/10) ──
+eq('mese impostato', estimateForMonth({ monthlyCents: 100, monthCents: { '7': 50 } }, '2027-07'), 50)
+eq('mese vuoto: importo base', estimateForMonth({ monthlyCents: 100, monthCents: { '7': 50 } }, '2026-08'), 100)
+eq('nessun profilo', estimateForMonth({ monthlyCents: 100 }, '2026-12'), 100)
+eq('mese a zero vale zero', estimateForMonth({ monthlyCents: 100, monthCents: { '12': 0 } }, '2026-12'), 0)
+{
+  const fv = (id: string, sup: string | null, date: string, cents: number) =>
+    ({ id, companyId: 'WT', supplierId: sup, label: id, doc: null, date, cents, generic: true })
+  const pr = computeBlock(blockInput('WT_ARIES', ['WT'], {
+    estimates: [
+      { id: 'F', companyId: 'WT', label: 'Forini', kind: 'muro', category: 'utenze', monthlyCents: 3000000,
+        monthCents: { '11': 3600000 }, pct: [33.34, 33.33, 33.33], replacedBy: [], supplierId: 'forini' },
+    ],
+    invoices: [fv('u1', 'forini', '2026-11-05', 3300000), fv('u2', 'forini', '2026-12-05', 500000)],
+  }), dec)
+  const fOf = (i: number) => pr.decades[i].rows.muro.items.find(x => x.estimateId === 'F')
+  eq('novembre: 36.000 del mese − 33.000 arrivate = 3.000', pr.decades.slice(3, 6).reduce((s, d) => s + (d.rows.muro.items.find(x => x.estimateId === 'F')?.cents ?? 0), 0), 300000)
+  eq('novembre: confronto con la stima del mese', fOf(3)!.monthEstimateCents, 3600000)
+  eq('nessun avviso: 33.000 sotto i 36.000 di novembre', pr.estimateOver.length, 0)
+  eq('dicembre senza importo proprio: base 30.000 − 5.000', pr.decades.slice(6, 9).reduce((s, d) => s + (d.rows.muro.items.find(x => x.estimateId === 'F')?.cents ?? 0), 0), 2500000)
+  eq('ottobre D2+D3: 33,33% + 33,33% della base 30.000', pr.decades.slice(1, 3).reduce((s, d) => s + (d.rows.muro.items.find(x => x.estimateId === 'F')?.cents ?? 0), 0), 1999800)
 }
 
 // ── Utenze scadute da poco: nel muro (12/10) ──

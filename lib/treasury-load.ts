@@ -269,7 +269,8 @@ export async function loadTreasury(supabase: Supa) {
   }
   const estimates: Estimate[] = (estimatesRaw ?? []).map(e => ({
     id: e.id, companyId: e.company_id, label: e.label, kind: e.kind, category: e.category,
-    monthlyCents: e.monthly_cents, pct: [Number(e.pct_d1), Number(e.pct_d2), Number(e.pct_d3)],
+    monthlyCents: e.monthly_cents, monthCents: (e.month_cents ?? {}) as Record<string, number>,
+    pct: [Number(e.pct_d1), Number(e.pct_d2), Number(e.pct_d3)],
     replacedBy: e.replaced_by ?? [],
     supplierId: e.supplier_id ?? null,
   }))

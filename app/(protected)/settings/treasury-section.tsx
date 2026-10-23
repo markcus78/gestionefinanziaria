@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
-import { updateEstimate, createEstimate, updateBacklogBefore, updateGroupThreshold, payProForma } from './actions'
+import { updateEstimate, createEstimate, updateBacklogBefore, updateGroupThreshold, payProForma, updateEstimateMonths } from './actions'
 import type { Company, TreasuryEstimate } from '@/lib/types/database'
 
 const KIND_LABEL: Record<TreasuryEstimate['kind'], string> = {
@@ -19,6 +19,8 @@ export const SPLITS = {
 }
 
 export type SupplierOption = { id: string; company_id: string; supplier_name: string }
+
+const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 
 // Le stime stanno in due posti (Marco, 23/10/2026): quelle di uscita sono impegni stimati
 // (Impegni → Stimati), quelle di incasso stanno in Incassi → Stime
@@ -62,6 +64,30 @@ function EstimateRow({ e, suppliers, scope }: { e: TreasuryEstimate; suppliers: 
   const [kind, setKind] = useState<TreasuryEstimate['kind']>(e.kind)
   const [msg, setMsg] = useState<string | null>(null)
   const [pf, setPf] = useState<{ amount: string; date: string } | null>(null)
+  // importi per mese dell'anno: 12 caselle, vuota = importo base
+  const monthsSet = Object.keys(e.month_cents ?? {}).length
+  const [pm, setPm] = useState<string[] | null>(null)
+  function openMonths() {
+    setPm(MONTHS.map((_, i) => {
+      const v = e.month_cents?.[String(i + 1)]
+      return typeof v === 'number' ? (v / 100).toFixed(0) : ''
+    }))
+  }
+  function saveMonths(values: string[]) {
+    const parsed = values.map(v => {
+      const s = v.trim().replace(/\s/g, '')
+      if (!s) return null
+      const n = s.includes(',') ? parseFloat(s.replace(/\./g, '').replace(',', '.')) : parseFloat(s)
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : NaN
+    })
+    if (parsed.some(n => Number.isNaN(n))) { setMsg('Importo non valido'); return }
+    setMsg(null)
+    startTransition(async () => {
+      const res = await updateEstimateMonths(e.id, parsed as (number | null)[])
+      if ('error' in res) setMsg(String(res.error))
+      else { setPm(null); setMsg('Salvato'); router.refresh() }
+    })
+  }
 
   // Pro forma pagata: il fornitore fattura dopo e la contabilità chiude la fattura già pagata,
   // quindi nello scadenzario non arriva mai. Si registra qui: impegno pagato che consuma la stima.
@@ -117,7 +143,10 @@ function EstimateRow({ e, suppliers, scope }: { e: TreasuryEstimate; suppliers: 
               placeholder={kind === 'fornitori' ? 'vuoto = altri fornitori' : 'nessuno'} />
           : <span className="text-[11px] text-zinc-600">righe di Staff/Impegni</span>}
       </td>
-      <td className="px-3 py-2 text-right"><input value={monthly} onChange={ev => setMonthly(ev.target.value)} className={`${inputCls} w-24 text-right`} /></td>
+      <td className="px-3 py-2 text-right">
+        <input value={monthly} onChange={ev => setMonthly(ev.target.value)} className={`${inputCls} w-24 text-right`} />
+        {monthsSet > 0 && <div className="text-[10px] text-zinc-500" title="Vale per i mesi senza un importo proprio">base</div>}
+      </td>
       <td className="px-3 py-2 text-right"><input value={p1} onChange={ev => setP1(ev.target.value)} className={`${inputCls} w-14 text-right`} /></td>
       <td className="px-3 py-2 text-right"><input value={p2} onChange={ev => setP2(ev.target.value)} className={`${inputCls} w-14 text-right`} /></td>
       <td className="px-3 py-2 text-right"><input value={p3} onChange={ev => setP3(ev.target.value)} className={`${inputCls} w-14 text-right`} /></td>
@@ -128,6 +157,12 @@ function EstimateRow({ e, suppliers, scope }: { e: TreasuryEstimate; suppliers: 
           <button onClick={() => { setActive(!active); save(!active) }} disabled={isPending} className="text-xs text-zinc-500 hover:text-zinc-300">
             {active ? 'Disattiva' : 'Attiva'}
           </button>
+          {!pm && (
+            <button onClick={openMonths} className="text-xs text-amber-400 hover:text-amber-300"
+              title="Un importo diverso per ogni mese dell'anno (estate, inverno…)">
+              Importi per mese{monthsSet > 0 ? ` · ${monthsSet}` : ''}
+            </button>
+          )}
           {e.supplier_id && kind !== 'incasso' && !pf && (
             <button onClick={() => setPf({ amount: '', date: new Date().toISOString().slice(0, 10) })} className="text-xs text-sky-400 hover:text-sky-300"
               title="Pagata su pro forma: la fattura non passerà dallo scadenzario">Pagata pro forma</button>
@@ -136,6 +171,30 @@ function EstimateRow({ e, suppliers, scope }: { e: TreasuryEstimate; suppliers: 
         </div>
       </td>
     </tr>
+      {pm && (
+        <tr className="border-b border-zinc-800/50 bg-zinc-800/30">
+          <td colSpan={10} className="px-3 py-2">
+            <div className="text-xs text-zinc-300 mb-2">
+              Importi per mese di «{e.label}» — casella vuota = importo base ({Number(monthly || 0).toLocaleString('it-IT')} €). Valgono ogni anno.
+            </div>
+            <div className="grid grid-cols-6 lg:grid-cols-12 gap-2">
+              {MONTHS.map((m, i) => (
+                <label key={m} className="flex flex-col gap-0.5">
+                  <span className="text-[11px] text-zinc-500">{m}</span>
+                  <input value={pm[i]} placeholder={String(Number(monthly || 0))}
+                    onChange={ev => setPm(pm.map((v, k) => k === i ? ev.target.value : v))}
+                    className={`${inputCls} w-full text-right`} />
+                </label>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 mt-2">
+              <button onClick={() => saveMonths(pm)} disabled={isPending} className="px-3 py-1 text-xs rounded bg-amber-700 text-zinc-100 hover:bg-amber-600">Salva importi</button>
+              <button onClick={() => setPm(MONTHS.map(() => ''))} className="text-xs text-zinc-400 hover:text-zinc-200">Svuota tutti</button>
+              <button onClick={() => setPm(null)} className="text-xs text-zinc-500 hover:text-zinc-300">Chiudi</button>
+            </div>
+          </td>
+        </tr>
+      )}
       {pf && (
         <tr className="border-b border-zinc-800/50 bg-zinc-800/30">
           <td colSpan={10} className="px-3 py-2">

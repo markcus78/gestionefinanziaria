@@ -170,6 +170,7 @@ export type Estimate = {
   kind: 'incasso' | 'muro' | 'automatico' | 'fornitori'
   category: string
   monthlyCents: number
+  monthCents?: Record<string, number>   // importo per mese dell'anno ("1".."12"); mese assente = monthlyCents
   pct: [number, number, number]
   replacedBy: string[]
   supplierId?: string | null    // le fatture di questo fornitore consumano la stima
@@ -222,6 +223,13 @@ export function consumeEstimate(
 
 // Quote intere in centesimi: le prime due arrotondate per difetto, il resto all'ultima,
 // così la somma del mese è esatta.
+// Importo della stima per un mese (Marco, 23/10/2026): utenze, personale e F24 cambiano con le
+// stagioni. Il mese dell'anno impostato vale su quello base; il profilo si ripete ogni anno.
+export function estimateForMonth(est: Pick<Estimate, 'monthlyCents' | 'monthCents'>, month: string): number {
+  const v = est.monthCents?.[String(Number(month.slice(5, 7)))]
+  return typeof v === 'number' && v >= 0 ? v : est.monthlyCents
+}
+
 export function splitMonthly(monthlyCents: number, pct: [number, number, number]): [number, number, number] {
   const tot = pct[0] + pct[1] + pct[2]
   const q1 = Math.floor(monthlyCents * pct[0] / tot)
@@ -499,14 +507,15 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
         : est.replacedBy.flatMap(t => input.realStaff.get(`${est.companyId}|${t}|${month}`) ?? [])
       const staffCents = staffRows.reduce((s, r) => s + r.cents, 0)
 
-      let monthly = est.monthlyCents
+      const baseMonth = estimateForMonth(est, month)
+      let monthly = baseMonth
       let source: CellItem['source'] = 'stima'
       // Stime che si consumano: le fatture vere del mese (anche pagate) tolgono la loro parte
       const consumed = consumeEstimate(est, month, input.invoices ?? [], ownEstimate)
       const consumedCents = consumed?.reduce((s, iv) => s + iv.cents, 0) ?? 0
       if (consumed) {
-        if (consumedCents > est.monthlyCents) {
-          estimateOver.push({ label: est.label, month, invoicesCents: consumedCents, estimateCents: est.monthlyCents })
+        if (consumedCents > baseMonth) {
+          estimateOver.push({ label: est.label, month, invoicesCents: consumedCents, estimateCents: baseMonth })
         }
       }
       const manual = input.manualRevenue.get(`${est.companyId}|${month}`)
@@ -569,7 +578,7 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
               companyId: iv.companyId, doc: iv.doc,
             })),
             monthCoveredCents: consumedCents,
-            monthEstimateCents: est.monthlyCents,
+            monthEstimateCents: baseMonth,
           } : {}),
         })
       }

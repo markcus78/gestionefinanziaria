@@ -226,6 +226,23 @@ export async function createEstimate(input: {
   return { success: true }
 }
 
+// Importi per mese dell'anno (Marco, 23/10/2026): 12 valori in centesimi, null = vale l'importo base
+export async function updateEstimateMonths(id: string, months: (number | null)[]) {
+  if (months.length !== 12) return { error: 'Servono 12 mesi' }
+  if (months.some(m => m !== null && (!Number.isFinite(m) || m < 0))) return { error: 'Importo non valido' }
+  const month_cents: Record<string, number> = {}
+  months.forEach((m, i) => { if (m !== null) month_cents[String(i + 1)] = Math.round(m) })
+  const supabase = await createClient()
+  const { error } = await supabase.from('treasury_estimates')
+    .update({ month_cents, updated_at: new Date().toISOString() }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/impegni')
+  revalidatePath('/operations')
+  revalidatePath('/treasury')
+  revalidatePath('/piano')
+  return { success: true }
+}
+
 export async function updateBacklogBefore(companyId: string, date: string | null) {
   if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'Data non valida' }
   const supabase = await createClient()

@@ -108,6 +108,8 @@ Le stime mensili si vedono e si correggono nella scheda **Stimati** (una scheda 
   - **Fornitori** — fatture che arriveranno e che si possono ridurre quando la cassa è stretta;
 - **il fornitore**, quando la stima riguarda un fornitore preciso (per esempio Forini per la luce e il gas).
 
+**Importi per mese.** Utenze, personale e F24 non costano uguale tutto l'anno. Sulla riga della stima, **«Importi per mese»** apre 12 caselle, da gennaio a dicembre: una casella compilata vale per quel mese, una vuota prende l'importo base. Il profilo si ripete ogni anno. Fatture, file di Staff e correzioni a mano in Tesoreria funzionano come sempre, partendo dall'importo di quel mese.
+
 Come la stima si trasforma, senza doppioni:
 
 - **Stima con un fornitore** — le fatture vere di quel fornitore (anche già pagate) **consumano** la stima nella loro decade. Se le fatture superano la stima, il sistema lo segnala.
@@ -269,6 +271,8 @@ Per gli incassi che Coffa non vede si usa una stima, con l'importo al mese e com
 
 - **Bar di Hangar 55**: stima mensile.
 - **Affitti degli spazi** (su Aries): la stima si fa **sulla base dei contratti attivi** e si aggiorna quando un contratto comincia o finisce.
+
+Anche qui **«Importi per mese»** permette un importo diverso per ogni mese dell'anno (per esempio il bar d'estate).
 
 Una stima di incasso **non conta per i giorni già coperti** dal saldo della banca o dagli incassi registrati di quella società: conta solo per i giorni che mancano.
 
