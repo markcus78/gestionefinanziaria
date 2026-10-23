@@ -795,6 +795,19 @@ function CommitmentsSection({
                   onChange={e => setForm(p => ({ ...p, account_description: e.target.value }))}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
               </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  {form.estimated && form.is_recurring ? 'Importo stimato al mese (€) *' : form.estimated ? 'Importo stimato (€) *' : 'Importo (€) *'}
+                </label>
+                <input type="number" min="0" step="0.01" value={form.amount} placeholder="0.00"
+                  onChange={e => setForm(p => ({ ...p, amount: e.target.value }))}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                <label className="flex items-center gap-1.5 mt-1 text-[11px] text-zinc-400">
+                  <input type="checkbox" checked={form.estimated}
+                    onChange={e => setForm(p => ({ ...p, estimated: e.target.checked }))} />
+                  Importo stimato: non si conosce ancora l&apos;importo preciso
+                </label>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 {form.estimated && form.is_recurring ? (
                   <div>
@@ -819,19 +832,6 @@ function CommitmentsSection({
                     <option value="in">Entrata</option>
                   </select>
                 </div>
-              </div>
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">
-                  {form.estimated && form.is_recurring ? 'Importo stimato al mese (€) *' : form.estimated ? 'Importo stimato (€) *' : 'Importo (€) *'}
-                </label>
-                <input type="number" min="0" step="0.01" value={form.amount} placeholder="0.00"
-                  onChange={e => setForm(p => ({ ...p, amount: e.target.value }))}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                <label className="flex items-center gap-1.5 mt-1 text-[11px] text-zinc-400">
-                  <input type="checkbox" checked={form.estimated}
-                    onChange={e => setForm(p => ({ ...p, estimated: e.target.checked }))} />
-                  Importo stimato: non si conosce ancora l&apos;importo preciso
-                </label>
               </div>
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Note</label>
