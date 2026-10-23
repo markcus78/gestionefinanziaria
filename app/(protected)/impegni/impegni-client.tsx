@@ -809,14 +809,9 @@ function CommitmentsSection({
                 </label>
               </div>
               <div className="grid grid-cols-2 gap-3">
+                {/* stima mensile: niente data, il riparto sulle decadi sta sotto «Ripeti» */}
                 {form.estimated && form.is_recurring ? (
-                  <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Riparto sulle decadi *</label>
-                    <select value={form.split} onChange={e => setForm(p => ({ ...p, split: e.target.value as FormState['split'] }))}
-                      className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-                      {Object.entries(SPLITS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                    </select>
-                  </div>
+                  <div className="text-[11px] text-zinc-500 self-end pb-2">Data: ogni mese, secondo il riparto qui sotto</div>
                 ) : (
                   <div>
                     <label className="block text-xs text-zinc-400 mb-1">{form.is_recurring ? 'Prima scadenza *' : 'Data scadenza *'}</label>
@@ -860,6 +855,13 @@ function CommitmentsSection({
                       Diventa una stima mensile (scheda «Stimati»): un importo al mese, ripartito sulle decadi, che si riduce
                       quando arrivano le fatture del fornitore o i file dello Staff.
                     </p>
+                    <div>
+                      <label className="block text-xs text-zinc-400 mb-1">Riparto sulle decadi *</label>
+                      <select value={form.split} onChange={e => setForm(p => ({ ...p, split: e.target.value as FormState['split'] }))}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                        {Object.entries(SPLITS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                      </select>
+                    </div>
                     <div>
                       <label className="block text-xs text-zinc-400 mb-1">Gruppo in Tesoreria</label>
                       <select value={estimateGroup(form)} onChange={e => setForm(p => ({ ...p, group: e.target.value as FormState['group'] }))}
