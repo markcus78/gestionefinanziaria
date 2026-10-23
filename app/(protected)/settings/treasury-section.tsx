@@ -177,7 +177,7 @@ function EstimateRow({ e, suppliers, scope }: { e: TreasuryEstimate; suppliers: 
             <div className="text-xs text-zinc-300 mb-2">
               Importi per mese di «{e.label}» — casella vuota = importo base ({Number(monthly || 0).toLocaleString('it-IT')} €). Valgono ogni anno.
             </div>
-            <div className="grid grid-cols-6 lg:grid-cols-12 gap-2">
+            <div className="grid grid-cols-6 gap-2 max-w-2xl">
               {MONTHS.map((m, i) => (
                 <label key={m} className="flex flex-col gap-0.5">
                   <span className="text-[11px] text-zinc-500">{m}</span>
