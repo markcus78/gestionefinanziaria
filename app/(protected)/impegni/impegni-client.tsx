@@ -156,6 +156,7 @@ type FormState = {
   is_recurring: boolean
   frequency: 'monthly' | 'quarterly' | 'annual'
   months_ahead: number
+  day_rule: 'same' | 'month_end'
   kind: Kind
   new_supplier: boolean
   // importo stimato (Marco, 23/10/2026): una volta sola = impegno segnato «stimato»;
@@ -183,6 +184,7 @@ const EMPTY_FORM: FormState = {
   is_recurring: false,
   frequency: 'monthly',
   months_ahead: 12,
+  day_rule: 'same',
   new_supplier: false,
   estimated: false,
   split: 'terzi',
@@ -297,7 +299,7 @@ function CommitmentsSection({
     }
 
     if (form.is_recurring) {
-      const res = await createRecurringCommitments(input, form.frequency, form.months_ahead)
+      const res = await createRecurringCommitments(input, form.frequency, form.months_ahead, form.day_rule)
       setSaving(false)
       if ('error' in res) return setFormErr(res.error)
       setModalOpen(false)
@@ -398,6 +400,7 @@ function CommitmentsSection({
       is_recurring: false,
       frequency: 'monthly',
       months_ahead: 12,
+      day_rule: 'same',
       kind: item.commitment_type && KIND_VALUES.has(item.commitment_type) ? item.commitment_type as Kind : 'manual',
       new_supplier: item.new_supplier ?? false,
       estimated: item.is_estimated ?? false,
@@ -803,7 +806,7 @@ function CommitmentsSection({
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Data scadenza *</label>
+                    <label className="block text-xs text-zinc-400 mb-1">{form.is_recurring ? 'Prima scadenza *' : 'Data scadenza *'}</label>
                     <input type="date" value={form.due_date} onChange={e => setForm(p => ({ ...p, due_date: e.target.value }))}
                       className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
@@ -883,13 +886,26 @@ function CommitmentsSection({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-zinc-400 mb-1">Per quanti mesi</label>
+                      <label className="block text-xs text-zinc-400 mb-1">Quante rate</label>
                       <input
                         type="number" min="1" max="120" step="1"
                         value={form.months_ahead}
                         onChange={e => setForm(p => ({ ...p, months_ahead: parseInt(e.target.value) || 1 }))}
                         className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs text-zinc-400 mb-1">Giorno della rata</label>
+                      <select value={form.day_rule} onChange={e => setForm(p => ({ ...p, day_rule: e.target.value as FormState['day_rule'] }))}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                        <option value="same">Giorno fisso: il {form.due_date ? Number(form.due_date.slice(8, 10)) : '…'} di ogni mese</option>
+                        <option value="month_end">L&apos;ultimo giorno del mese</option>
+                      </select>
+                      <p className="text-[11px] text-zinc-500 mt-1">
+                        {form.day_rule === 'same'
+                          ? 'Nei mesi più corti la rata cade l\'ultimo giorno (per esempio il 31 diventa il 30, o il 28 a febbraio).'
+                          : 'Ogni rata cade l\'ultimo giorno del suo mese (31, 30, 28 o 29).'}
+                      </p>
                     </div>
                   </div>
                 )}

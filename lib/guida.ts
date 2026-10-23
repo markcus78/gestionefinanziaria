@@ -80,7 +80,7 @@ Le uscite sono poi di due tipi, e il tipo dell'impegno dice quale:
 
 Si inserisce con **Nuovo impegno** scegliendo il tipo. Se un impegno ha il tipo sbagliato, si apre la modifica e si cambia il tipo.
 
-Per una spesa che si ripete (ogni mese, ogni trimestre, ogni anno) si usa la spunta **Ripeti**: il sistema crea tutte le rate.
+Per una spesa che si ripete (ogni mese, ogni trimestre, ogni anno) si usa la spunta **Ripeti**: si scelgono la frequenza, quante rate e **il giorno della rata** — un giorno fisso del mese (quello della prima scadenza; nei mesi più corti diventa l'ultimo giorno) oppure **l'ultimo giorno del mese**. Il sistema crea tutte le rate. Un mutuo o un finanziamento è un impegno **certo** (importo e giorno noti): si inserisce così, come «Rata di finanziamento», non come stima.
 
 Il **personale** non si inserisce da Impegni ma dal menu **Staff**, mese per mese:
 

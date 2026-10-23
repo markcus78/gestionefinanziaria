@@ -185,6 +185,9 @@ export async function createRecurringCommitments(
   input: CommitmentInput,
   frequency: 'monthly' | 'quarterly' | 'annual',
   monthsAhead: number,
+  // giorno della rata (Marco, 23/10/2026): lo stesso giorno della prima scadenza (nei mesi più
+  // corti l'ultimo giorno), oppure sempre l'ultimo giorno del mese
+  dayRule: 'same' | 'month_end' = 'same',
 ): Promise<RecurringResult> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -203,7 +206,7 @@ export async function createRecurringCommitments(
     const year  = yy + Math.floor(totalMonths / 12)
     const month = (totalMonths % 12) + 1
     const daysInMonth = new Date(year, month, 0).getDate()
-    const day = Math.min(dd, daysInMonth)
+    const day = dayRule === 'month_end' ? daysInMonth : Math.min(dd, daysInMonth)
     dates.push(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`)
   }
 
