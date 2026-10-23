@@ -8,7 +8,8 @@ function formatEur(cents: number) {
 import { MONTHS_SHORT } from '@/lib/channel-utils'
 import CollectionsTab from './collections-tab'
 import ScostamentoTab from './scostamento-tab'
-import type { ChannelConfig, CollectionWithChannel } from '@/lib/types/database'
+import { EstimatesSection } from '../settings/treasury-section'
+import type { ChannelConfig, CollectionWithChannel, Company as FullCompany, TreasuryEstimate } from '@/lib/types/database'
 
 type Company = { id: string; code: string; name: string }
 
@@ -23,11 +24,15 @@ type Props = {
   tab: string
   today: string
   canDelete: boolean
+  // scheda «Stime»: le stime degli incassi della società (Marco, 23/10/2026)
+  estimates: TreasuryEstimate[]
+  fullCompany: FullCompany | null
 }
 
 const TABS = [
   { id: 'incassi',    label: 'Incassi' },
   { id: 'andamento',  label: 'Andamento' },
+  { id: 'stime',      label: 'Stime' },
 ]
 // La scheda «Settlement» (spunta «accreditato») è tolta il 19/10/2026 (Marco): la Tesoreria usa
 // la data di arrivo prevista e il controllo è il saldo della banca a ogni decade.
@@ -37,7 +42,7 @@ const YEARS = [2024, 2025, 2026, 2027]
 export default function OperationsClient({
   companies, company, channelConfigs,
   collections,
-  forecastCents, year, month, tab, today, canDelete,
+  forecastCents, year, month, tab, today, canDelete, estimates, fullCompany,
 }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
@@ -152,6 +157,10 @@ export default function OperationsClient({
           month={month}
           canDelete={canDelete}
         />
+      )}
+
+      {tab === 'stime' && fullCompany && (
+        <EstimatesSection scope="incassi" companies={[fullCompany]} estimates={estimates} suppliers={[]} />
       )}
 
       {tab === 'andamento' && (

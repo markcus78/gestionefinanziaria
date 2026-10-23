@@ -183,6 +183,7 @@ export type PaymentScheduleItem = {
   priority_override: number | null
   supplier_id: string | null
   new_supplier?: boolean
+  is_estimated?: boolean
   dedup_key: string
   created_at: string
   updated_at: string

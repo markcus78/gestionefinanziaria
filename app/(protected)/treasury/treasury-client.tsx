@@ -320,7 +320,7 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
               <span className="text-amber-400 font-medium">Fatture sopra la stima</span>
               <span className="text-zinc-400 ml-2">
                 {result.estimateOver.map(u => `${u.label} ${u.month.slice(5, 7)}/${u.month.slice(0, 4)}: arrivate ${formatEur(u.invoicesCents)} contro stima ${formatEur(u.estimateCents)}`).join(' · ')}
-                {' '}— alza la stima nella sezione Stime
+                {' '}— alza la stima in Impegni → Stimati
               </span>
             </div>
           </div>

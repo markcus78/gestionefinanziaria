@@ -17,6 +17,8 @@ export type CommitmentInput = {
   commitment_type?: ManualKind | null
   // fornitore che non ha ancora fatture nello scadenzario: l'impegno resta da collegare
   new_supplier?: boolean
+  // importo stimato, da confermare (Marco, 23/10/2026): in Tesoreria conta come gli altri
+  is_estimated?: boolean
 }
 
 // Tipi che si inseriscono e si cambiano da Impegni (il personale e gli F24 arrivano da Staff)
@@ -76,6 +78,7 @@ export async function createCommitment(input: CommitmentInput): Promise<Commitme
     is_intercompany: false,
     postpone_notes: input.notes,
     commitment_type: input.commitment_type ?? null,
+    is_estimated: input.is_estimated ?? false,
     ...sup,
   })
 
@@ -87,7 +90,7 @@ export async function createCommitment(input: CommitmentInput): Promise<Commitme
 
 export async function updateCommitment(
   id: string,
-  input: Pick<CommitmentInput, 'supplier_name' | 'account_description' | 'due_date' | 'amount_cents' | 'flow_type' | 'notes' | 'new_supplier' | 'commitment_type'>
+  input: Pick<CommitmentInput, 'supplier_name' | 'account_description' | 'due_date' | 'amount_cents' | 'flow_type' | 'notes' | 'new_supplier' | 'commitment_type' | 'is_estimated'>
 ): Promise<CommitmentResult> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -119,6 +122,7 @@ export async function updateCommitment(
       flow_type: input.flow_type,
       postpone_notes: input.notes,
       commitment_type: kind,
+      ...(input.is_estimated !== undefined ? { is_estimated: input.is_estimated } : {}),
       ...sup,
     })
     .eq('id', id)
@@ -219,6 +223,7 @@ export async function createRecurringCommitments(
     document_number:    `RIC-${seriesId}-${due_date.slice(0, 7)}`,
     is_intercompany:    false,
     postpone_notes:     input.notes,
+    is_estimated:       input.is_estimated ?? false,
     ...sup,
   }))
 

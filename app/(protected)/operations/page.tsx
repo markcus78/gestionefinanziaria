@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { TrendingUp } from 'lucide-react'
 import OperationsClient from './operations-client'
-import type { ChannelConfig, CollectionWithChannel } from '@/lib/types/database'
+import type { ChannelConfig, CollectionWithChannel, Company, TreasuryEstimate } from '@/lib/types/database'
 
 export default async function OperationsPage({
   searchParams,
@@ -49,6 +49,8 @@ export default async function OperationsPage({
     { data: channelConfigsRaw },
     { data: collectionsRaw },
     { data: forecastRow },
+    { data: estimates },
+    { data: fullCompany },
   ] = await Promise.all([
     supabase
       .from('company_cash_channels')
@@ -70,6 +72,13 @@ export default async function OperationsPage({
       .eq('month', month)
       .is('channel_id', null)
       .maybeSingle(),
+    // scheda «Stime»: le stime degli incassi di questa società
+    tab === 'stime'
+      ? supabase.from('treasury_estimates').select('*').eq('company_id', companyId).eq('kind', 'incasso').order('label')
+      : Promise.resolve({ data: [] }),
+    tab === 'stime'
+      ? supabase.from('companies').select('*').eq('id', companyId).maybeSingle()
+      : Promise.resolve({ data: null }),
   ])
 
   const forecastCents = forecastRow?.forecast_gross_cents ?? 0
@@ -92,6 +101,8 @@ export default async function OperationsPage({
         tab={tab}
         today={today}
         canDelete={canDelete}
+        estimates={(estimates ?? []) as TreasuryEstimate[]}
+        fullCompany={(fullCompany ?? null) as Company | null}
       />
     </div>
   )

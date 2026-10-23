@@ -4,15 +4,17 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useCallback, useState, useTransition, useEffect } from 'react'
 import {
   Plus, X, Pencil, Ban, Trash2, Check, Calendar,
-  Repeat, RefreshCw, ListPlus, Scale,
+  Repeat, RefreshCw, ListPlus, Scale, Calculator,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { createCommitment, updateCommitment, cancelCommitment, deleteCommitment, createCommitmentBatch, createRecurringCommitments, markCommitmentPaid } from './actions'
 import type { CommitmentInput } from './actions'
 import { createTemplate, updateTemplate, deleteTemplate, generateMonth } from './templates-actions'
 import type { TemplateInput } from './templates-actions'
-import type { PaymentScheduleItem, PaymentStatus, RecurringTemplate } from '@/lib/types/database'
+import type { PaymentScheduleItem, PaymentStatus, RecurringTemplate, TreasuryEstimate } from '@/lib/types/database'
 import type { Company } from '@/lib/types/database'
+import { EstimatesSection, SPLITS } from '../settings/treasury-section'
+import { createEstimate } from '../settings/actions'
 
 // ── Costanti ──────────────────────────────────────────────────────────────────
 
@@ -125,6 +127,8 @@ type Props = {
   templates: RecurringTemplate[]
   matchedIds: string[]
   suppliers: SupplierOpt[]
+  estimates: TreasuryEstimate[]
+  fullCompanies: Company[]
 }
 
 // Fornitore obbligatorio sulle spese in uscita (Marco, 15/10/2026): si sceglie fra i fornitori dello
@@ -154,6 +158,17 @@ type FormState = {
   months_ahead: number
   kind: Kind
   new_supplier: boolean
+  // importo stimato (Marco, 23/10/2026): una volta sola = impegno segnato «stimato»;
+  // ricorrente = stima mensile ripartita sulle decadi (scheda «Stimati»)
+  estimated: boolean
+  split: keyof typeof SPLITS
+  group: '' | 'muro' | 'automatico' | 'fornitori'
+}
+
+// Gruppo proposto per una stima mensile: le spese verso un fornitore stanno fra i Fornitori,
+// le uscite che non passano dallo scadenzario nel Muro
+function estimateGroup(f: Pick<FormState, 'group' | 'kind'>): 'muro' | 'automatico' | 'fornitori' {
+  return f.group || (f.kind === 'manual' ? 'fornitori' : 'muro')
 }
 
 const EMPTY_FORM: FormState = {
@@ -169,6 +184,9 @@ const EMPTY_FORM: FormState = {
   frequency: 'monthly',
   months_ahead: 12,
   new_supplier: false,
+  estimated: false,
+  split: 'terzi',
+  group: '',
 }
 
 type BatchRow = {
@@ -232,6 +250,27 @@ function CommitmentsSection({
     e.preventDefault()
     if (!form.company_id)    return setFormErr('Seleziona la società')
     if (!form.supplier_name) return setFormErr('Inserisci fornitore/descrizione')
+
+    // stima mensile: importo al mese ripartito sulle decadi, consumato da fatture o file di Staff
+    if (form.estimated && form.is_recurring) {
+      if (form.flow_type !== 'out') return setFormErr('Le stime degli incassi si inseriscono in Incassi → Stime')
+      const monthly = parseCents(form.amount)
+      if (monthly <= 0) return setFormErr('Inserisci l\'importo stimato al mese')
+      const name = form.supplier_name.trim()
+      const sup = suppliers.find(s => s.company_id === form.company_id && s.supplier_name === name)
+      setSaving(true)
+      const res = await createEstimate({
+        companyId: form.company_id, label: name, kind: estimateGroup(form),
+        monthlyCents: monthly, pct: SPLITS[form.split].pct, supplierId: sup?.id ?? null,
+      })
+      setSaving(false)
+      if ('error' in res) return setFormErr(String(res.error))
+      setModalOpen(false)
+      router.push(`${pathname}?tab=stimati`)
+      router.refresh()
+      return
+    }
+
     if (!form.due_date)      return setFormErr('Inserisci la data')
     const amountCents = parseCents(form.amount)
     if (amountCents <= 0)    return setFormErr('Inserisci un importo valido')
@@ -250,6 +289,7 @@ function CommitmentsSection({
       notes: form.notes || null,
       commitment_type: form.kind,
       new_supplier: form.new_supplier,
+      is_estimated: form.estimated,
     }
 
     if (form.is_recurring) {
@@ -356,6 +396,9 @@ function CommitmentsSection({
       months_ahead: 12,
       kind: item.commitment_type && KIND_VALUES.has(item.commitment_type) ? item.commitment_type as Kind : 'manual',
       new_supplier: item.new_supplier ?? false,
+      estimated: item.is_estimated ?? false,
+      split: 'terzi',
+      group: '',
     })
     setEditErr('')
   }
@@ -376,6 +419,7 @@ function CommitmentsSection({
       notes: editForm.notes || null,
       new_supplier: editForm.new_supplier,
       commitment_type: editForm.kind,
+      is_estimated: editForm.estimated,
     })
     setEditSaving(false)
     if ('error' in res) return setEditErr(res.error)
@@ -569,6 +613,11 @@ function CommitmentsSection({
                                 <KindOptions />
                               </select>
                             )}
+                            <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                              <input type="checkbox" checked={editForm.estimated}
+                                onChange={e => setEditForm(p => ({ ...p, estimated: e.target.checked }))} />
+                              importo stimato
+                            </label>
                           </div>
                         </td>
                         <td className="px-3 py-2">
@@ -625,6 +674,9 @@ function CommitmentsSection({
                               ? <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-sky-500/20 text-sky-400" title="Fornitore che non ha ancora fatture: va collegato quando arriva la prima">Fornitore nuovo</span>
                               : <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-400" title="Senza fornitore la fattura non viene riconosciuta e si conta due volte: modifica e scegli il fornitore">Senza fornitore</span>
                           )}
+                          {item.is_estimated && (
+                            <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400" title="Importo stimato, da confermare">Stimato</span>
+                          )}
                           {matchedSet.has(item.id) && (
                             <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-orange-500/20 text-orange-400">
                               Già in scadenzario
@@ -645,7 +697,7 @@ function CommitmentsSection({
                       <td className={`px-3 py-2 text-right font-medium tabular-nums ${
                         item.flow_type === 'out' ? 'text-red-400' : 'text-emerald-400'
                       }`}>
-                        {item.flow_type === 'out' ? '-' : '+'}{formatEur(Math.abs(item.amount_cents))}
+                        {item.is_estimated ? '≈ ' : ''}{item.flow_type === 'out' ? '-' : '+'}{formatEur(Math.abs(item.amount_cents))}
                       </td>
                       <td className="px-3 py-2">
                         <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${badge.cls}`}>
@@ -737,11 +789,21 @@ function CommitmentsSection({
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-zinc-400 mb-1">Data scadenza *</label>
-                  <input type="date" value={form.due_date} onChange={e => setForm(p => ({ ...p, due_date: e.target.value }))}
-                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                </div>
+                {form.estimated && form.is_recurring ? (
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Riparto sulle decadi *</label>
+                    <select value={form.split} onChange={e => setForm(p => ({ ...p, split: e.target.value as FormState['split'] }))}
+                      className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                      {Object.entries(SPLITS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Data scadenza *</label>
+                    <input type="date" value={form.due_date} onChange={e => setForm(p => ({ ...p, due_date: e.target.value }))}
+                      className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs text-zinc-400 mb-1">Tipo</label>
                   <select value={form.flow_type} onChange={e => setForm(p => ({ ...p, flow_type: e.target.value as 'in' | 'out' }))}
@@ -752,10 +814,17 @@ function CommitmentsSection({
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Importo (€) *</label>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  {form.estimated && form.is_recurring ? 'Importo stimato al mese (€) *' : form.estimated ? 'Importo stimato (€) *' : 'Importo (€) *'}
+                </label>
                 <input type="number" min="0" step="0.01" value={form.amount} placeholder="0.00"
                   onChange={e => setForm(p => ({ ...p, amount: e.target.value }))}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                <label className="flex items-center gap-1.5 mt-1 text-[11px] text-zinc-400">
+                  <input type="checkbox" checked={form.estimated}
+                    onChange={e => setForm(p => ({ ...p, estimated: e.target.checked }))} />
+                  Importo stimato: non si conosce ancora l&apos;importo preciso
+                </label>
               </div>
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Note</label>
@@ -778,7 +847,24 @@ function CommitmentsSection({
                     Ripeti
                   </span>
                 </label>
-                {form.is_recurring && (
+                {form.is_recurring && form.estimated && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-zinc-500">
+                      Diventa una stima mensile (scheda «Stimati»): un importo al mese, ripartito sulle decadi, che si riduce
+                      quando arrivano le fatture del fornitore o i file dello Staff.
+                    </p>
+                    <div>
+                      <label className="block text-xs text-zinc-400 mb-1">Gruppo in Tesoreria</label>
+                      <select value={estimateGroup(form)} onChange={e => setForm(p => ({ ...p, group: e.target.value as FormState['group'] }))}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                        <option value="muro">Muro: si paga sempre per intero</option>
+                        <option value="automatico">Automatiche: escono da sole dalla banca</option>
+                        <option value="fornitori">Fornitori: si decide in pianificazione</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+                {form.is_recurring && !form.estimated && (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs text-zinc-400 mb-1">Frequenza</label>
@@ -1594,13 +1680,15 @@ function ReconciliationSection({
 // Main Component
 // ────────────────────────────────────────────────────────────────────────────
 
+// Impegni certi e stimati (Marco, 23/10/2026). «Costi ricorrenti» non è più nell'elenco
+// (da non usare dal 15/10): resta raggiungibile con ?tab=templates.
 const TABS = [
-  { value: 'commitments',    label: 'Impegni',          icon: Calendar },
-  { value: 'templates',      label: 'Costi ricorrenti', icon: Repeat },
+  { value: 'commitments',    label: 'Certi',            icon: Calendar },
+  { value: 'stimati',        label: 'Stimati',          icon: Calculator },
   { value: 'reconciliation', label: 'Riconciliazione',  icon: Scale },
 ]
 
-export default function ImpegniClient({ items, companies, templates, matchedIds, suppliers }: Props) {
+export default function ImpegniClient({ items, companies, templates, matchedIds, suppliers, estimates, fullCompanies }: Props) {
   const router   = useRouter()
   const pathname = usePathname()
   const sp       = useSearchParams()
@@ -1642,6 +1730,9 @@ export default function ImpegniClient({ items, companies, templates, matchedIds,
 
       {activeTab === 'commitments' && (
         <CommitmentsSection items={items} companies={companies} matchedIds={matchedIds} suppliers={suppliers} />
+      )}
+      {activeTab === 'stimati' && (
+        <EstimatesSection scope="uscite" companies={fullCompanies} estimates={estimates} suppliers={suppliers} />
       )}
       {activeTab === 'templates' && (
         <TemplatesSection templates={templates} companies={companies} />

@@ -37,7 +37,7 @@ Il lavoro è diviso in **tre fasi**, una dopo l'altra:
 
 ## In breve
 
-- Le uscite entrano da **tre fonti**: **Scadenze** (le fatture, dallo scadenzario della contabilità), **Impegni** (spese decise che non sono ancora fatture, o che non lo saranno mai) e **Stime** (spese che sappiamo che arriveranno ma di cui non sappiamo ancora l'importo esatto).
+- Le uscite entrano da **due fonti**: **Scadenze** (le fatture, dallo scadenzario della contabilità) e **Impegni** (spese decise che non sono ancora fatture, o che non lo saranno mai). Un impegno è **certo** (importo e data noti) o **stimato** (sappiamo che arriverà, ma non ancora l'importo esatto): le stime sono impegni, nella scheda **Stimati** di Impegni.
 - Le **scadenze non si scrivono mai a mano**: arrivano solo con l'import dello scadenzario di Spring. Se la contabilità cambia un piano di pagamento, l'import successivo lo aggiorna da solo.
 - Un **impegno** ha due destini: o **diventa una fattura** (una spesa verso un fornitore) e allora va tolto quando la fattura arriva, oppure **resta impegno** fino al pagamento (stipendi, collaboratori, F24, rate di finanziamento, tasse).
 - Una **stima** ha due destini: o **diventa impegno** (il personale, quando si carica il file del mese) o **diventa scadenza** (le utenze, quando arrivano le bollette). Il sistema la toglie da solo.
@@ -59,7 +59,12 @@ Sono le **fatture vere** registrate dalla contabilità in Spring, con la loro da
 
 ### 2. Gli impegni (menu Impegni e menu Staff)
 
-Un impegno è una **spesa già decisa** che nello scadenzario non c'è ancora. Le uscite sono di due tipi, e il tipo dell'impegno dice quale:
+Un impegno è una **spesa già decisa** che nello scadenzario non c'è ancora. Può essere:
+
+- **certo** — si conoscono importo e data (scheda **Certi**);
+- **stimato** — l'uscita ci sarà di sicuro, ma l'importo preciso non si conosce ancora (spunta **«Importo stimato»**; vedi il punto 3).
+
+Le uscite sono poi di due tipi, e il tipo dell'impegno dice quale:
 
 **Passa dallo scadenzario** (arriverà una fattura):
 
@@ -75,7 +80,7 @@ Un impegno è una **spesa già decisa** che nello scadenzario non c'è ancora. L
 
 Si inserisce con **Nuovo impegno** scegliendo il tipo. Se un impegno ha il tipo sbagliato, si apre la modifica e si cambia il tipo.
 
-Per una spesa che si ripete (ogni mese, ogni trimestre, ogni anno) si usa la spunta **ricorrente**: il sistema crea tutte le rate.
+Per una spesa che si ripete (ogni mese, ogni trimestre, ogni anno) si usa la spunta **Ripeti**: il sistema crea tutte le rate.
 
 Il **personale** non si inserisce da Impegni ma dal menu **Staff**, mese per mese:
 
@@ -85,17 +90,19 @@ Il **personale** non si inserisce da Impegni ma dal menu **Staff**, mese per mes
 
 > Gli istruttori a partita IVA sono impegni che diventano fattura: quando nello scadenzario arriva la fattura di quell'istruttore per quel mese, l'impegno si spegne da solo e in Staff compare **«fattura arrivata: …»**. Da quel momento si paga la fattura, dallo Scadenzario.
 
-### 3. Le stime (menu Stime)
+### 3. Gli impegni stimati (menu Impegni, scheda Stimati)
 
-Una stima è una **spesa che sappiamo che arriverà**, ma di cui non conosciamo ancora l'importo esatto: le bollette, il personale prima dei file, i prodotti della piscina. Serve a non avere buchi nella previsione.
+Una stima è un **impegno**: una spesa che sappiamo che arriverà, ma di cui non conosciamo ancora l'importo esatto (le bollette, il personale prima dei file, i prodotti della piscina). Serve a non avere buchi nella previsione. Si inserisce da **Nuovo impegno** con la spunta **«Importo stimato»**:
 
-Ogni stima ha:
+- **una volta sola** (si sa quando, non quanto) — diventa un impegno normale con il segno **«Stimato»** e l'importo preceduto da «≈». In cassa conta come gli altri. Quando l'importo è confermato si apre la modifica e si toglie la spunta; quando arriva la fattura, l'impegno va tolto come ogni spesa verso un fornitore;
+- **con «Ripeti»** — diventa una **stima mensile**, nella scheda **Stimati**: invece di data, frequenza e mesi si scelgono l'importo al mese, il riparto sulle decadi e il gruppo in Tesoreria.
 
-- **la società** (una scheda per società in alto);
+Le stime mensili si vedono e si correggono nella scheda **Stimati** (una scheda per società). Ogni stima ha:
+
+- **la società**;
 - **l'importo al mese**;
 - **come si divide fra le decadi**: un terzo per decade, tutto nella 1ª, nella 2ª o nella 3ª decade, oppure le tre percentuali scritte a mano;
-- **il tipo**:
-  - **Incasso** — un'entrata stimata (per esempio il bar);
+- **il gruppo**:
   - **Muro** — si paga sempre per intero, prima dei fornitori (personale, F24, utenze, rate, tributi, assicurazioni, tesseramenti e affiliazioni);
   - **Automatico** — parte da solo dalla banca (mutuo, commissioni, addebiti diretti);
   - **Fornitori** — fatture che arriveranno e che si possono ridurre quando la cassa è stretta;
@@ -142,7 +149,7 @@ Il calendario sta in un posto solo: la pagina **Lavoro quotidiano**, il pulsante
 1. **Impegni nuovi**: ogni spesa autorizzata (anche per email, anche con importo stimato) entra in Impegni **lo stesso giorno**, con il fornitore.
 2. **Pagamenti fatti**: segnarli come pagati — gli impegni con **Segna come pagato** in Impegni, il personale con **Pagato** in Staff, le fatture in **Pagamenti** (Paga, pagamento parziale, posticipo).
 3. **Incassi** di Appiae e di Hangar, nel menu Incassi, per giorno di vendita (vedi la fase 2).
-4. **Pro forma pagate**: registrarle in Stime con **Pagata pro forma**.
+4. **Pro forma pagate**: registrarle in Impegni → Stimati con **Pagata pro forma**.
 5. **Segnalazioni** del Lavoro quotidiano: guardarle e sistemarle.
 
 ### A ogni decade (il 6, il 16 e il 26, prima della call di pianificazione)
@@ -157,7 +164,7 @@ Il calendario sta in un posto solo: la pagina **Lavoro quotidiano**, il pulsante
 ### Ogni mese
 
 1. In **Staff**: **Distinta netti** (paghe), **Istruttori** (collaboratori e P.IVA, da Athletis) e **F24** di ogni società. Da quel momento la stima del personale diventa impegni.
-2. In **Stime**: controllare che gli importi siano ancora giusti (bollette, personale, F24, e fra gli incassi il bar di Hangar e gli affitti dai contratti attivi).
+2. In **Impegni → Stimati** e in **Incassi → Stime**: controllare che gli importi siano ancora giusti (bollette, personale, F24, e fra gli incassi il bar di Hangar e gli affitti dai contratti attivi).
 
 ### Come funziona il Lavoro quotidiano
 
@@ -169,8 +176,9 @@ Il calendario sta in un posto solo: la pagina **Lavoro quotidiano**, il pulsante
 
 ### Cose che non si usano più
 
-- In **Staff**, la riga **«Budget previsto»**: la Tesoreria non la legge. La stima del personale si mette in **Stime**.
-- In **Impegni**, la scheda **«Costi ricorrenti»**: per una spesa che si ripete si usa **Nuovo impegno** con la spunta ricorrente.
+- In **Staff**, la riga **«Budget previsto»**: la Tesoreria non la legge. La stima del personale si mette in **Impegni → Stimati**.
+- In **Impegni**, i **«Costi ricorrenti»**: non sono più fra le schede. Per una spesa che si ripete si usa **Nuovo impegno** con la spunta **Ripeti**.
+- Il menu **Stime**: dal 23/10/2026 le stime delle uscite stanno in **Impegni → Stimati**, quelle degli incassi in **Incassi → Stime**.
 
 ## Domande frequenti
 
@@ -190,7 +198,7 @@ Se in Staff c'è scritto «fattura arrivata», l'impegno non conta più: si paga
 Stipendi, collaboratori e F24 in Staff. Rate di finanziamento e tasse in Impegni, con il tipo giusto.
 
 **Ho pagato un fornitore su pro forma.**
-In Stime, sulla riga di quel fornitore: «Pagata pro forma», importo e data. Se il fornitore non ha una stima, inserisci un impegno «spesa verso un fornitore» e segnalo come pagato.
+In Impegni → Stimati, sulla riga di quel fornitore: «Pagata pro forma», importo e data. Se il fornitore non ha una stima, inserisci un impegno «spesa verso un fornitore» e segnalo come pagato.
 `,
   },
   {
@@ -253,9 +261,9 @@ Coffa manda ogni giorno la previsione degli incassi di Appiae: rinnovi, Scuole d
 
 La previsione di Coffa conta solo per i giorni **dopo l'ultimo incasso registrato, più 5 giorni** (il tempo medio fra vendita e arrivo in banca). I giorni prima sono già coperti dalle righe vere.
 
-Se Coffa non manda i dati, resta la stima di riserva «Incassi abbonamenti (Coffa)» nel menu Stime.
+Se Coffa non manda i dati, resta la stima di riserva «Incassi abbonamenti (Coffa)» in Incassi → Stime.
 
-### Le stime (menu Stime, tipo «Incasso»)
+### Le stime degli incassi (menu Incassi, scheda Stime)
 
 Per gli incassi che Coffa non vede si usa una stima, con l'importo al mese e come si divide fra le decadi:
 

@@ -34,6 +34,8 @@ export async function updateBankBalance(_: unknown, formData: FormData) {
   if (error) return { error: error.message }
   revalidatePath('/settings')
   revalidatePath('/stime')
+  revalidatePath('/impegni')
+  revalidatePath('/operations')
   revalidatePath('/treasury')
   return { success: true }
 }
@@ -197,6 +199,8 @@ export async function updateEstimate(
   if (error) return { error: error.message }
   revalidatePath('/settings')
   revalidatePath('/stime')
+  revalidatePath('/impegni')
+  revalidatePath('/operations')
   revalidatePath('/treasury')
   return { success: true }
 }
@@ -216,6 +220,8 @@ export async function createEstimate(input: {
   if (error) return { error: error.message }
   revalidatePath('/settings')
   revalidatePath('/stime')
+  revalidatePath('/impegni')
+  revalidatePath('/operations')
   revalidatePath('/treasury')
   return { success: true }
 }
@@ -227,6 +233,8 @@ export async function updateBacklogBefore(companyId: string, date: string | null
   if (error) return { error: error.message }
   revalidatePath('/settings')
   revalidatePath('/stime')
+  revalidatePath('/impegni')
+  revalidatePath('/operations')
   revalidatePath('/treasury')
   return { success: true }
 }
@@ -239,6 +247,8 @@ export async function updateGroupThreshold(cents: number) {
   if (error) return { error: error.message }
   revalidatePath('/settings')
   revalidatePath('/stime')
+  revalidatePath('/impegni')
+  revalidatePath('/operations')
   revalidatePath('/treasury')
   return { success: true }
 }
@@ -267,6 +277,7 @@ export async function payProForma(estimateId: string, cents: number, date: strin
   if ('error' in res) return { error: res.error }
   revalidatePath('/stime')
   revalidatePath('/impegni')
+  revalidatePath('/operations')
   revalidatePath('/treasury')
   return { success: true }
 }

@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import ImpegniClient from './impegni-client'
-import type { PaymentScheduleItem, Company, RecurringTemplate } from '@/lib/types/database'
+import type { PaymentScheduleItem, Company, RecurringTemplate, TreasuryEstimate } from '@/lib/types/database'
 
 export default async function ImpegniPage({
   searchParams,
@@ -38,6 +38,8 @@ export default async function ImpegniPage({
     { data: templates },
     { data: accounting },
     { data: suppliers },
+    { data: estimates },
+    { data: fullCompanies },
   ] = await Promise.all([
     impQ,
     supabase.from('companies').select('id, code, name').eq('is_active', true).order('name'),
@@ -48,6 +50,9 @@ export default async function ImpegniPage({
       .eq('entry_type', 'accounting')
       .not('status', 'in', '("cancelled","paid")'),
     supabase.from('supplier_registry').select('id, company_id, supplier_name').order('supplier_name').limit(2000),
+    // le stime delle uscite sono impegni stimati (scheda «Stimati», Marco 23/10/2026)
+    supabase.from('treasury_estimates').select('*').neq('kind', 'incasso').order('kind').order('label'),
+    supabase.from('companies').select('*').eq('is_active', true).order('code'),
   ])
 
   // Calcola quali impegni attivi hanno un possibile match in accounting
@@ -70,6 +75,8 @@ export default async function ImpegniPage({
       templates={(templates ?? []) as RecurringTemplate[]}
       matchedIds={matchedIds}
       suppliers={suppliers ?? []}
+      estimates={(estimates ?? []) as TreasuryEstimate[]}
+      fullCompanies={(fullCompanies ?? []) as Company[]}
     />
   )
 }

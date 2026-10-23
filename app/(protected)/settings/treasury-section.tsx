@@ -11,7 +11,7 @@ const KIND_LABEL: Record<TreasuryEstimate['kind'], string> = {
 }
 
 // Come si divide il mese fra le decadi; per altre divisioni si scrivono le tre % sulla riga
-const SPLITS = {
+export const SPLITS = {
   terzi: { label: 'Un terzo per decade', pct: [33.34, 33.33, 33.33] as [number, number, number] },
   d1: { label: 'Tutto nella 1ª decade (1-10)', pct: [100, 0, 0] as [number, number, number] },
   d2: { label: 'Tutto nella 2ª decade (11-20)', pct: [0, 100, 0] as [number, number, number] },
@@ -19,6 +19,11 @@ const SPLITS = {
 }
 
 export type SupplierOption = { id: string; company_id: string; supplier_name: string }
+
+// Le stime stanno in due posti (Marco, 23/10/2026): quelle di uscita sono impegni stimati
+// (Impegni → Stimati), quelle di incasso stanno in Incassi → Stime
+export type EstimateScope = 'uscite' | 'incassi'
+const OUT_KINDS = (Object.keys(KIND_LABEL) as TreasuryEstimate['kind'][]).filter(k => k !== 'incasso')
 
 // Le stime che hanno un fornitore: tutte le uscite tranne quelle che non passano dallo scadenzario
 // (personale, F24, tributi, finanziamenti: si chiudono con le righe vere dello Staff o degli Impegni)
@@ -46,7 +51,7 @@ function supplierIdOf(name: string, suppliers: SupplierOption[]): string | null 
 
 const inputCls = 'px-2 py-1 text-xs bg-zinc-800 border border-zinc-600 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500'
 
-function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: SupplierOption[] }) {
+function EstimateRow({ e, suppliers, scope }: { e: TreasuryEstimate; suppliers: SupplierOption[]; scope: EstimateScope }) {
   const router = useRouter()
   const [supplier, setSupplier] = useState(suppliers.find(s => s.id === e.supplier_id)?.supplier_name ?? '')
   const [monthly, setMonthly] = useState((e.monthly_cents / 100).toFixed(0))
@@ -97,10 +102,12 @@ function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: Supplie
         {e.notes && <div className="text-[11px] text-zinc-500">{e.notes}</div>}
       </td>
       <td className="px-3 py-2">
-        <select value={kind} onChange={ev => setKind(ev.target.value as TreasuryEstimate['kind'])} className={inputCls}
-          title="Si salva con «Salva» sulla riga">
-          {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
+        {scope === 'incassi'
+          ? <span className="text-xs text-zinc-400">{KIND_LABEL.incasso}</span>
+          : <select value={kind} onChange={ev => setKind(ev.target.value as TreasuryEstimate['kind'])} className={inputCls}
+              title="Si salva con «Salva» sulla riga">
+              {OUT_KINDS.map(k => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+            </select>}
       </td>
       <td className="px-3 py-2">
         {takesSupplier({ kind, replaced_by: e.replaced_by })
@@ -147,12 +154,12 @@ function EstimateRow({ e, suppliers }: { e: TreasuryEstimate; suppliers: Supplie
   )
 }
 
-function NewEstimate({ companyId, suppliers }: { companyId: string; suppliers: SupplierOption[] }) {
+function NewEstimate({ companyId, suppliers, scope }: { companyId: string; suppliers: SupplierOption[]; scope: EstimateScope }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [label, setLabel] = useState('')
   const [supplier, setSupplier] = useState('')
-  const [kind, setKind] = useState<TreasuryEstimate['kind']>('automatico')
+  const [kind, setKind] = useState<TreasuryEstimate['kind']>(scope === 'incassi' ? 'incasso' : 'automatico')
   const [monthly, setMonthly] = useState('0')
   const [split, setSplit] = useState<keyof typeof SPLITS>('terzi')
   const [error, setError] = useState<string | null>(null)
@@ -183,9 +190,11 @@ function NewEstimate({ companyId, suppliers }: { companyId: string; suppliers: S
   return (
     <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
       <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Nome voce" className={`${inputCls} w-56`} />
-      <select value={kind} onChange={e => setKind(e.target.value as TreasuryEstimate['kind'])} className={inputCls}>
-        {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-      </select>
+      {scope === 'uscite' && (
+        <select value={kind} onChange={e => setKind(e.target.value as TreasuryEstimate['kind'])} className={inputCls}>
+          {OUT_KINDS.map(k => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+        </select>
+      )}
       {kind !== 'incasso' && (
         <SupplierInput value={supplier} onChange={setSupplier} suppliers={suppliers} listId={`sup-new-${companyId}`} placeholder="Fornitore (dall'elenco)" />
       )}
@@ -226,14 +235,17 @@ function BacklogRow({ company }: { company: Company }) {
   )
 }
 
-// Le stime: una sezione a sé accanto a Scadenzario e Impegni (regola di Marco, 14/10/2026)
+// Le stime: dal 23/10/2026 (Marco) quelle di uscita sono la scheda «Stimati» di Impegni,
+// quelle di incasso la scheda «Stime» di Incassi. Il calcolo in Tesoreria non cambia.
 export function EstimatesSection({
-  companies, estimates, suppliers,
+  companies, estimates: all, suppliers, scope,
 }: {
   companies: Company[]
   estimates: TreasuryEstimate[]
   suppliers: SupplierOption[]
+  scope: EstimateScope
 }) {
+  const estimates = all.filter(e => (e.kind === 'incasso') === (scope === 'incassi'))
   // una scheda per società: WT e Aries sono due società distinte, anche se in Tesoreria stanno nello stesso blocco
   const shown = companies
   const [tab, setTab] = useState(shown[0]?.id ?? '')
@@ -248,13 +260,20 @@ export function EstimatesSection({
           </button>
         ))}
       </div>
-      <p className="text-sm text-zinc-400">
-        Uscite e incassi stimati al mese, con la quota per ogni decade (1-10, 11-20, 21-fine mese).
-        Le voci con un fornitore si riducono man mano che arrivano le sue fatture del mese (stima − arrivate);
-        quelle di tipo Fornitori senza fornitore valgono per tutti gli altri fornitori. Se un fornitore si paga su pro forma
-        (la fattura poi non passa dallo scadenzario), il pagamento si registra con «Pagata pro forma» e consuma la stima. Le voci «sostituibili»
-        (personale, F24) si azzerano nel mese in cui arrivano le righe reali dallo Staff.
-      </p>
+      {scope === 'uscite' ? (
+        <p className="text-sm text-zinc-400">
+          Impegni di cui non si conosce ancora l&apos;importo preciso, che si ripetono ogni mese: un importo al mese con la quota per ogni decade (1-10, 11-20, 21-fine mese).
+          Le voci con un fornitore si riducono man mano che arrivano le sue fatture del mese (stima − arrivate);
+          quelle di tipo Fornitori senza fornitore valgono per tutti gli altri fornitori. Se un fornitore si paga su pro forma
+          (la fattura poi non passa dallo scadenzario), il pagamento si registra con «Pagata pro forma» e consuma la stima. Le voci «sostituibili»
+          (personale, F24) diventano gli impegni veri nel mese in cui arrivano i file dello Staff.
+        </p>
+      ) : (
+        <p className="text-sm text-zinc-400">
+          Incassi che non arrivano da Coffa (bar, affitti) e la stima di riserva di Coffa: un importo al mese con la quota per ogni decade.
+          Valgono solo per i giorni non ancora coperti dagli incassi registrati.
+        </p>
+      )}
       {shown.filter(c => c.id === tab).map(c => {
         const list = estimates.filter(e => e.company_id === c.id)
         return (
@@ -277,10 +296,10 @@ export function EstimatesSection({
                 </tr>
               </thead>
               <tbody>
-                {list.map(e => <EstimateRow key={e.id} e={e} suppliers={suppliers.filter(s => s.company_id === c.id)} />)}
+                {list.map(e => <EstimateRow key={e.id} e={e} scope={scope} suppliers={suppliers.filter(s => s.company_id === c.id)} />)}
               </tbody>
             </table>
-            <NewEstimate companyId={c.id} suppliers={suppliers.filter(s => s.company_id === c.id)} />
+            <NewEstimate companyId={c.id} scope={scope} suppliers={suppliers.filter(s => s.company_id === c.id)} />
           </div>
         )
       })}
@@ -315,7 +334,8 @@ export function TreasurySection({
       <div>
         <h2 className="text-base font-medium text-zinc-100">Tesoreria a decadi</h2>
         <p className="text-sm text-zinc-400 mt-0.5">
-          Le stime si gestiscono nella sezione <a href="/stime" className="text-indigo-400 hover:text-indigo-300">Stime</a>, accanto a Scadenzario e Impegni.
+          Le stime delle uscite stanno in <a href="/impegni?tab=stimati" className="text-indigo-400 hover:text-indigo-300">Impegni → Stimati</a>,
+          quelle degli incassi in <a href="/operations?tab=stime" className="text-indigo-400 hover:text-indigo-300">Incassi → Stime</a>.
         </p>
       </div>
 
