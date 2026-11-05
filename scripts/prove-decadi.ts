@@ -488,12 +488,13 @@ eq('nome e cognome in qualsiasi ordine', personKey('Monticone Fabrizio') === per
 {
   const it = (id: string, name: string, m: string) => ({ id, companyId: 'A', name, refMonth: m })
   const inv = (id: string, name: string, d: string) => ({ id, companyId: 'A', name, date: d, doc: id })
-  // Frolova: giugno fatturato il 3/7, luglio il 31/7, agosto il 17/8, settembre il 16/9
+  // Frolova: l'impegno è il mese di pagamento (Marco, 05/11): giugno paga maggio (fattura del 22/5),
+  // luglio paga giugno (3/7), agosto paga luglio (31/7), settembre paga agosto (17/8)
   const fro = matchPivaInvoices(
     [it('g', 'Frolova Ganna', '2026-06'), it('l', 'Frolova Ganna', '2026-07'), it('a', 'Frolova Ganna', '2026-08'), it('s', 'Frolova Ganna', '2026-09')],
     [inv('F11', 'FROLOVA GANNA', '2026-05-22'), inv('F13', 'FROLOVA GANNA', '2026-07-03'), inv('F15', 'FROLOVA GANNA', '2026-07-31'),
      inv('F17', 'FROLOVA GANNA', '2026-08-17'), inv('F18', 'FROLOVA GANNA', '2026-09-16')])
-  eq('Frolova: ogni mese la sua fattura', ['g', 'l', 'a', 's'].map(k => fro.get(k)?.id), ['F13', 'F15', 'F17', 'F18'])
+  eq('Frolova: ogni mese la sua fattura', ['g', 'l', 'a', 's'].map(k => fro.get(k)?.id), ['F11', 'F13', 'F15', 'F17'])
   // Marasco: settembre non ha ancora fatturato, l'impegno resta
   const mar = matchPivaInvoices([it('ago', 'marasco francesco', '2026-08'), it('set', 'marasco francesco', '2026-09')],
     [inv('37', 'MARASCO FRANCESCO', '2026-08-05')])
@@ -531,12 +532,14 @@ eq('nome e cognome in qualsiasi ordine', personKey('Monticone Fabrizio') === per
     [iA('set', fr, '2026-09', 97067), iA('ott', fr, '2026-10', 160700)],
     [vA('18', FR, '2026-09-16', 34424), vA('20', FR, '2026-10-23', 167336)])
   eq('Frolova: ottobre prende la fattura 20', frA.get('ott')?.id, '20')
-  // Monticone: la fattura di ottobre non è arrivata, l'impegno di ottobre resta
+  // Monticone fattura a fine mese il mese lavorato: l'impegno di ottobre (paga settembre) è la fattura del 30/9
   const mo = 'Monticone Fabrizio', MO = 'FABRIZIO MONTICONE'
   const mon = matchPivaInvoices(
     [iA('ago', mo, '2026-08', 100000), iA('set', mo, '2026-09', 100000), iA('ott', mo, '2026-10', 100000)],
-    [vA('51', MO, '2026-08-31', 126880), vA('57', MO, '2026-09-30', 126880)])
-  eq('Monticone: agosto e settembre fatturati, ottobre ancora impegno', [mon.get('ago')?.id, mon.get('set')?.id, mon.has('ott')], ['51', '57', false])
+    [vA('47', MO, '2026-07-31', 126880), vA('51', MO, '2026-08-31', 126880), vA('57', MO, '2026-09-30', 126880)])
+  eq('Monticone: agosto ← 31/7, settembre ← 31/8, ottobre ← 30/9', ['ago', 'set', 'ott'].map(k => mon.get(k)?.id), ['47', '51', '57'])
+  // novembre (paga ottobre): la fattura di fine ottobre non c'è ancora, l'impegno resta
+  eq('Monticone: novembre senza fattura resta impegno', matchPivaInvoices([iA('nov', mo, '2026-11', 100000)], [vA('57', MO, '2026-09-30', 126880)]).size, 0)
 }
 
 console.log(`\n${ok} prove superate, ${ko} fallite`)

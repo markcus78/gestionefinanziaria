@@ -2,15 +2,18 @@
 // Orianna lo carica in Staff come impegno; poi l'istruttore manda la fattura, che arriva dallo
 // scadenzario. È un impegno che diventa fattura: quando la fattura c'è, conta solo lei.
 //
+// L'impegno è il mese in cui si PAGA (Marco, 05/11/2026): l'impegno di luglio paga il lavoro di
+// giugno, quindi la sua fattura è di fine giugno o dei primi di luglio. Finestra di una fattura per
+// l'impegno del mese M: dal primo del mese M-1 alla fine del mese M+1; la più vicina è quella del
+// mese M-1 (il mese lavorato), poi quella del mese M, poi M+1.
+//
 // Abbinamento: stessa società e stessa persona (nome e cognome in qualsiasi ordine), in due giri.
-// 1. Per importo (Marco, 05/11/2026): la fattura va all'impegno il cui importo torna con quello della
-//    fattura (uguale, + 4 % di rivalsa, oppure + 4 % e IVA), fra il primo del mese prima e la fine del
-//    secondo mese dopo; a parità, il mese più vicino alla data della fattura. Senza questo giro una
+// 1. Per importo: la fattura va all'impegno il cui importo torna con quello della fattura (uguale,
+//    + 4 % di rivalsa, oppure + 4 % e IVA); a parità, la fattura più vicina. Senza questo giro una
 //    fattura mancante o due fatture nello stesso mese facevano scivolare tutte le fatture sui mesi
 //    vecchi (Buontempo e Guaci a ottobre 2026: impegno e fattura contati due volte).
-// 2. Per data, come prima, solo per quello che resta: in ordine di mese, ogni impegno prende la prima
-//    fattura non ancora usata datata dal primo del suo mese alla fine del secondo mese dopo (chi
-//    fattura giugno lo fa a fine giugno o nei primi giorni di luglio).
+// 2. Per data, solo per quello che resta: in ordine di mese, ogni impegno prende la prima fattura
+//    non ancora usata dentro la sua finestra.
 
 import type { createClient } from '@/lib/supabase/server'
 
@@ -22,8 +25,8 @@ export type PivaInvoice = { id: string; companyId: string; name: string; date: s
 
 // fattura ÷ impegno: senza rivalsa, + 4 % di rivalsa, + 4 % e IVA al 22 %
 const PIVA_RATIOS = [1, 1.04, 1.04 * 1.22]
-const RATIO_TOL = 0.02        // 2 % dell'importo atteso…
-const FIXED_TOL = 300         // …più 3 € (marca da bollo da 2 €, arrotondamenti)
+const RATIO_TOL = 0.01        // 1 % dell'importo atteso…
+const FIXED_TOL = 250         // …più 2,50 € (marca da bollo da 2 €, arrotondamenti)
 
 export function amountFits(item: number, invoice: number): number | null {
   let best: number | null = null
@@ -38,6 +41,17 @@ export function amountFits(item: number, invoice: number): number | null {
 function monthIndex(ym: string): number {
   const [y, m] = ym.split('-').map(Number)
   return y * 12 + m
+}
+
+// finestra della fattura per l'impegno del mese di pagamento M: dal primo di M-1 alla fine di M+1
+function invoiceWindow(refMonth: string): { from: string; to: string } {
+  return { from: monthEnd(refMonth, -1).slice(0, 8) + '01', to: monthEnd(refMonth, 1) }
+}
+
+// 0 = fattura del mese lavorato (M-1), 1 = del mese di pagamento (M), 2 = del mese dopo (M+1)
+function invoiceGap(refMonth: string, date: string): number {
+  const d = monthIndex(date.slice(0, 7)) - monthIndex(refMonth)
+  return d === -1 ? 0 : d === 0 ? 1 : 2
 }
 
 export function personKey(name: string): string {
@@ -70,12 +84,12 @@ export function matchPivaInvoices(items: PivaItem[], invoices: PivaInvoice[]): M
     if (!it.amount) continue
     const list = byPerson.get(`${it.companyId}|${personKey(it.name)}`)
     if (!list) continue
-    const from = monthEnd(it.refMonth, -1).slice(0, 8) + '01', to = monthEnd(it.refMonth, 2)
+    const { from, to } = invoiceWindow(it.refMonth)
     for (const inv of list) {
       if (!inv.amount || inv.date < from || inv.date > to) continue
       const diff = amountFits(it.amount, inv.amount)
       if (diff === null) continue
-      pairs.push({ it, inv, gap: Math.abs(monthIndex(inv.date.slice(0, 7)) - monthIndex(it.refMonth)), diff })
+      pairs.push({ it, inv, gap: invoiceGap(it.refMonth, inv.date), diff })
     }
   }
   pairs.sort((a, b) => a.gap - b.gap || a.diff - b.diff || a.inv.date.localeCompare(b.inv.date)
@@ -91,7 +105,7 @@ export function matchPivaInvoices(items: PivaItem[], invoices: PivaInvoice[]): M
     if (out.has(it.id)) continue
     const list = byPerson.get(`${it.companyId}|${personKey(it.name)}`)
     if (!list) continue
-    const from = it.refMonth + '-01', to = monthEnd(it.refMonth, 2)
+    const { from, to } = invoiceWindow(it.refMonth)
     const inv = list.find(i => !used.has(i.id) && i.date >= from && i.date <= to)
     if (!inv) continue
     used.add(inv.id)
