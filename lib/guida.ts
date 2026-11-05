@@ -88,7 +88,7 @@ Il **personale** non si inserisce da Impegni ma dal menu **Staff**, mese per mes
 - **Collaboratori**: si carica il file **Istruttori** di Athletis. Il file contiene anche gli istruttori a partita IVA: il sistema li riconosce da solo (sono quelli che mandano fatture alla società) e li segna come **P.IVA**. C'è anche il caricamento **Istruttori P.IVA** per il loro file a parte.
 - **F24**: si inseriscono importo e data.
 
-> Gli istruttori a partita IVA sono impegni che diventano fattura: quando nello scadenzario arriva la fattura di quell'istruttore per quel mese, l'impegno si spegne da solo e in Staff compare **«fattura arrivata: …»**. Da quel momento si paga la fattura, dallo Scadenzario.
+> Gli istruttori a partita IVA sono impegni che diventano fattura: quando nello scadenzario arriva la fattura di quell'istruttore per quel mese, l'impegno si spegne da solo e in Staff compare **«fattura arrivata: …»**. Da quel momento si paga la fattura, dallo Scadenzario. Il sistema abbina prima per **importo** (la fattura vale l'impegno, l'impegno più il 4 % di rivalsa, oppure più rivalsa e IVA), anche se la fattura arriva il mese prima o fino a due mesi dopo; se nessun importo torna, prende la prima fattura per data.
 
 ### 3. Gli impegni stimati (menu Impegni, scheda Stimati)
 

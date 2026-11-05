@@ -5,7 +5,7 @@ import {
   planKey, supplierDues, blockSpace, suggestedTransfer, plannedRemaining, lineStatus, offPlan, paidByKey,
   type Estimate, type OutRow, type BlockInput, type Transfer, type DecadeTx, type PlanSupplier,
 } from '../lib/decadi.ts'
-import { matchPivaInvoices, personKey } from '../lib/piva-match.ts'
+import { matchPivaInvoices, personKey, amountFits } from '../lib/piva-match.ts'
 import { calcPayoutDate } from '../lib/channel-utils.ts'
 
 let ok = 0, ko = 0
@@ -500,6 +500,43 @@ eq('nome e cognome in qualsiasi ordine', personKey('Monticone Fabrizio') === per
   eq('Marasco: agosto fatturato, settembre ancora impegno', [mar.get('ago')?.id, mar.has('set')], ['37', false])
   eq('altra società non abbina', matchPivaInvoices([it('x', 'Guaci Leonard', '2026-10')], [{ ...inv('38', 'GUACI LEONARD', '2026-10-07'), companyId: 'B' }]).size, 0)
   eq('fattura troppo lontana non abbina', matchPivaInvoices([it('x', 'Guaci Leonard', '2026-06')], [inv('40', 'GUACI LEONARD', '2026-09-01')]).size, 0)
+
+  // Prima l'importo (Marco, 05/11/2026): i casi veri di ottobre 2026, importi in centesimi
+  const iA = (id: string, name: string, m: string, amount: number) => ({ ...it(id, name, m), amount })
+  const vA = (id: string, name: string, d: string, amount: number) => ({ ...inv(id, name, d), amount })
+  eq('importo: + 4 % torna', amountFits(97300, 101192) !== null, true)
+  eq('importo: + 4 % e IVA torna (Monticone)', amountFits(100000, 126880) !== null, true)
+  eq('importo: metà non torna', amountFits(51300, 25896), null)
+  // Buontempo: impegni mag-ott (due a ottobre), fatture solo da agosto
+  const bu = 'Buontempo Alessandro', BU = 'Buontempo Alessandro'
+  const buo = matchPivaInvoices(
+    [iA('mag', bu, '2026-05', 127600), iA('giu', bu, '2026-06', 84050), iA('lug', bu, '2026-07', 140600),
+     iA('ago', bu, '2026-08', 109800), iA('set', bu, '2026-09', 119400), iA('ott1', bu, '2026-10', 58900), iA('ott2', bu, '2026-10', 97300)],
+    [vA('21', BU, '2026-08-18', 114192), vA('25', BU, '2026-10-13', 61317), vA('26', BU, '2026-10-24', 101192)])
+  eq('Buontempo: le due fatture di ottobre vanno a ottobre', [buo.get('ott1')?.id, buo.get('ott2')?.id], ['25', '26'])
+  eq('Buontempo: la fattura del 18/08 va ad agosto', buo.get('ago')?.id, '21')
+  eq('Buontempo: giugno e settembre senza fattura', [buo.has('giu'), buo.has('set')], [false, false])
+  // Guaci: la fattura del 7/10 (258,96) è di ottobre (247), non di settembre (513)
+  const gu = 'Guaci Leonard', GU = 'GUACI LEONARD'
+  const gua = matchPivaInvoices(
+    [iA('mag', gu, '2026-05', 51300), iA('giu', gu, '2026-06', 51300), iA('lug', gu, '2026-07', 45600),
+     iA('ago', gu, '2026-08', 41800), iA('set', gu, '2026-09', 51300), iA('ott', gu, '2026-10', 24700)],
+    [vA('16', GU, '2026-05-03', 53506), vA('19', GU, '2026-06-02', 47632), vA('26', GU, '2026-07-06', 43680),
+     vA('30', GU, '2026-07-31', 35776), vA('33', GU, '2026-09-01', 23920), vA('38', GU, '2026-10-07', 25896)])
+  eq('Guaci: ottobre prende la fattura 38', gua.get('ott')?.id, '38')
+  eq('Guaci: la 38 non va a settembre', gua.get('set')?.id !== '38', true)
+  // Frolova: ottobre resta abbinato com'era
+  const fr = 'Frolova Ganna', FR = 'FROLOVA GANNA'
+  const frA = matchPivaInvoices(
+    [iA('set', fr, '2026-09', 97067), iA('ott', fr, '2026-10', 160700)],
+    [vA('18', FR, '2026-09-16', 34424), vA('20', FR, '2026-10-23', 167336)])
+  eq('Frolova: ottobre prende la fattura 20', frA.get('ott')?.id, '20')
+  // Monticone: la fattura di ottobre non è arrivata, l'impegno di ottobre resta
+  const mo = 'Monticone Fabrizio', MO = 'FABRIZIO MONTICONE'
+  const mon = matchPivaInvoices(
+    [iA('ago', mo, '2026-08', 100000), iA('set', mo, '2026-09', 100000), iA('ott', mo, '2026-10', 100000)],
+    [vA('51', MO, '2026-08-31', 126880), vA('57', MO, '2026-09-30', 126880)])
+  eq('Monticone: agosto e settembre fatturati, ottobre ancora impegno', [mon.get('ago')?.id, mon.get('set')?.id, mon.has('ott')], ['51', '57', false])
 }
 
 console.log(`\n${ok} prove superate, ${ko} fallite`)

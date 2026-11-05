@@ -2,16 +2,43 @@
 // Orianna lo carica in Staff come impegno; poi l'istruttore manda la fattura, che arriva dallo
 // scadenzario. È un impegno che diventa fattura: quando la fattura c'è, conta solo lei.
 //
-// Abbinamento: stessa società e stessa persona (nome e cognome in qualsiasi ordine). In ordine di
-// mese, ogni impegno prende la prima fattura non ancora usata datata dal primo del suo mese alla
-// fine del secondo mese dopo (chi fattura giugno lo fa a fine giugno o nei primi giorni di luglio).
+// Abbinamento: stessa società e stessa persona (nome e cognome in qualsiasi ordine), in due giri.
+// 1. Per importo (Marco, 05/11/2026): la fattura va all'impegno il cui importo torna con quello della
+//    fattura (uguale, + 4 % di rivalsa, oppure + 4 % e IVA), fra il primo del mese prima e la fine del
+//    secondo mese dopo; a parità, il mese più vicino alla data della fattura. Senza questo giro una
+//    fattura mancante o due fatture nello stesso mese facevano scivolare tutte le fatture sui mesi
+//    vecchi (Buontempo e Guaci a ottobre 2026: impegno e fattura contati due volte).
+// 2. Per data, come prima, solo per quello che resta: in ordine di mese, ogni impegno prende la prima
+//    fattura non ancora usata datata dal primo del suo mese alla fine del secondo mese dopo (chi
+//    fattura giugno lo fa a fine giugno o nei primi giorni di luglio).
 
 import type { createClient } from '@/lib/supabase/server'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
-export type PivaItem = { id: string; companyId: string; name: string; refMonth: string }
-export type PivaInvoice = { id: string; companyId: string; name: string; date: string; doc: string | null }
+// amount: in centesimi, positivo; se manca, l'impegno o la fattura entrano solo nel giro per data
+export type PivaItem = { id: string; companyId: string; name: string; refMonth: string; amount?: number }
+export type PivaInvoice = { id: string; companyId: string; name: string; date: string; doc: string | null; amount?: number }
+
+// fattura ÷ impegno: senza rivalsa, + 4 % di rivalsa, + 4 % e IVA al 22 %
+const PIVA_RATIOS = [1, 1.04, 1.04 * 1.22]
+const RATIO_TOL = 0.02        // 2 % dell'importo atteso…
+const FIXED_TOL = 300         // …più 3 € (marca da bollo da 2 €, arrotondamenti)
+
+export function amountFits(item: number, invoice: number): number | null {
+  let best: number | null = null
+  for (const r of PIVA_RATIOS) {
+    const want = item * r
+    const diff = Math.abs(invoice - want)
+    if (diff <= want * RATIO_TOL + FIXED_TOL && (best === null || diff < best)) best = diff
+  }
+  return best
+}
+
+function monthIndex(ym: string): number {
+  const [y, m] = ym.split('-').map(Number)
+  return y * 12 + m
+}
 
 export function personKey(name: string): string {
   return name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -36,7 +63,32 @@ export function matchPivaInvoices(items: PivaItem[], invoices: PivaInvoice[]): M
   for (const list of byPerson.values()) list.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
   const used = new Set<string>()
   const sorted = [...items].sort((a, b) => a.refMonth.localeCompare(b.refMonth) || a.id.localeCompare(b.id))
+
+  // 1. per importo: tutte le coppie che tornano, dalla più vicina in date
+  const pairs: { it: PivaItem; inv: PivaInvoice; gap: number; diff: number }[] = []
   for (const it of sorted) {
+    if (!it.amount) continue
+    const list = byPerson.get(`${it.companyId}|${personKey(it.name)}`)
+    if (!list) continue
+    const from = monthEnd(it.refMonth, -1).slice(0, 8) + '01', to = monthEnd(it.refMonth, 2)
+    for (const inv of list) {
+      if (!inv.amount || inv.date < from || inv.date > to) continue
+      const diff = amountFits(it.amount, inv.amount)
+      if (diff === null) continue
+      pairs.push({ it, inv, gap: Math.abs(monthIndex(inv.date.slice(0, 7)) - monthIndex(it.refMonth)), diff })
+    }
+  }
+  pairs.sort((a, b) => a.gap - b.gap || a.diff - b.diff || a.inv.date.localeCompare(b.inv.date)
+    || a.it.refMonth.localeCompare(b.it.refMonth) || a.it.id.localeCompare(b.it.id) || a.inv.id.localeCompare(b.inv.id))
+  for (const p of pairs) {
+    if (out.has(p.it.id) || used.has(p.inv.id)) continue
+    used.add(p.inv.id)
+    out.set(p.it.id, p.inv)
+  }
+
+  // 2. per data, su quello che resta
+  for (const it of sorted) {
+    if (out.has(it.id)) continue
     const list = byPerson.get(`${it.companyId}|${personKey(it.name)}`)
     if (!list) continue
     const from = it.refMonth + '-01', to = monthEnd(it.refMonth, 2)
@@ -52,11 +104,11 @@ export function matchPivaInvoices(items: PivaItem[], invoices: PivaInvoice[]): M
 export async function loadPivaInvoiced(supabase: SupabaseServerClient, fromMonth: string): Promise<Map<string, PivaInvoice>> {
   const [{ data: items, error: e1 }, { data: invs, error: e2 }] = await Promise.all([
     supabase.from('payment_schedule')
-      .select('id, company_id, supplier_name, reference_month, due_date')
+      .select('id, company_id, supplier_name, reference_month, due_date, amount_cents')
       .eq('entry_type', 'commitment').eq('commitment_type', 'piva_item').neq('status', 'cancelled')
       .gte('due_date', fromMonth + '-01').limit(1000),
     supabase.from('payment_schedule')
-      .select('id, company_id, supplier_name, document_number, document_date, due_date, supplier_registry!inner(treasury_as_staff)')
+      .select('id, company_id, supplier_name, document_number, document_date, due_date, amount_cents, supplier_registry!inner(treasury_as_staff)')
       .eq('entry_type', 'accounting').eq('flow_type', 'out').neq('status', 'cancelled')
       .eq('supplier_registry.treasury_as_staff', true)
       .gte('due_date', fromMonth + '-01').limit(1000),
@@ -67,10 +119,12 @@ export async function loadPivaInvoiced(supabase: SupabaseServerClient, fromMonth
     (items ?? []).map(r => ({
       id: r.id, companyId: r.company_id, name: r.supplier_name ?? '',
       refMonth: r.reference_month ?? String(r.due_date).slice(0, 7),
+      amount: Math.abs(Number(r.amount_cents ?? 0)),
     })),
     (invs ?? []).map(r => ({
       id: r.id, companyId: r.company_id, name: r.supplier_name ?? '',
       date: r.document_date ?? r.due_date, doc: r.document_number,
+      amount: Math.abs(Number(r.amount_cents ?? 0)),
     })),
   )
 }
