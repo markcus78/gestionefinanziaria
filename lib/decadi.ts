@@ -297,6 +297,7 @@ export type CellItem = {
   month?: string
   idx?: DecadeIdx
   replaced?: boolean
+  residual?: number     // quanto resta da pagare della riga intera (per «pagata» dal cruscotto)
   group?: string        // voci da mostrare insieme in una riga sola (le bollette di un mese in coda)
   // solo sulle stime che si consumano: le fatture vere già arrivate di questa decade
   covered?: CellItem[]
@@ -511,7 +512,7 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
         add(rows[b].muro, {
           label, cents, source: 'scadenzario', date: from < decades[0].from ? decades[0].from : from,
           rowId: r.id, companyId: r.companyId, supplierId: r.supplierId, method: r.paymentMethod, doc: r.documentNumber,
-          group: `coda|${r.companyId}|${r.supplierId}|${r.queueDocMonth}`,
+          residual: r.residualCents, group: `coda|${r.companyId}|${r.supplierId}|${r.queueDocMonth}`,
         })
       }
       continue
@@ -533,7 +534,7 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
       : route === 'muro' || route === 'f24' ? 'staff' : 'impegno'
     const item: CellItem = {
       label, cents: r.residualCents, source, date: e, rowId: r.id, companyId: r.companyId, method: r.paymentMethod,
-      doc: r.documentNumber, supplierId: r.supplierId,
+      doc: r.documentNumber, supplierId: r.supplierId, residual: r.residualCents,
     }
     const key: RowKey = route === 'muro' ? 'muro'
       : route === 'f24' ? 'f24'

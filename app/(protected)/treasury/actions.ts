@@ -170,3 +170,43 @@ export async function markInstallmentPaid(installmentId: string, paidDate: strin
   revalidatePath('/schedule')
   return { success: true }
 }
+
+function revalidateRows() {
+  for (const p of ['/treasury', '/schedule', '/payments', '/dashboard', '/impegni', '/staff', '/piano', '/oggi']) revalidatePath(p)
+}
+
+// Dal dettaglio del cruscotto (Marco, 06/11/2026): una voce pagata ma non segnata, senza cercarla nei menù.
+// Passa da applyPayment come lo Scadenzario: il pagamento si vede ovunque.
+export async function payTreasuryRow(rowId: string, paidDate: string, cents: number) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) return { error: 'Data non valida' }
+  const supabase = await createClient()
+  const { data: row, error: rowErr } = await supabase.from('payment_schedule')
+    .select('amount_cents, paid_amount_cents, status').eq('id', rowId).single()
+  if (rowErr || !row) return { error: rowErr?.message ?? 'Voce non trovata' }
+  if (row.status === 'paid' || row.status === 'cancelled') return { error: 'La voce risulta già chiusa' }
+  const residual = residualCents(row.amount_cents, row.paid_amount_cents)
+  const amount = Math.round(cents)
+  if (!Number.isFinite(amount) || amount <= 0) return { error: 'Importo non valido' }
+  if (amount > residual) return { error: `Più di quanto resta da pagare (${(residual / 100).toLocaleString('it-IT')} €)` }
+  const res = await applyPayment(supabase, rowId, paidDate, amount, 'Segnata dalla Tesoreria')
+  if ('error' in res) return res
+  revalidateRows()
+  return { success: true }
+}
+
+// Sposta la scadenza prevista: la data vera resta, conta la nuova (postponed_to)
+export async function postponeTreasuryRow(rowId: string, newDate: string, notes: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) return { error: 'Data non valida' }
+  const supabase = await createClient()
+  const { data: row, error: rowErr } = await supabase.from('payment_schedule').select('status').eq('id', rowId).single()
+  if (rowErr || !row) return { error: rowErr?.message ?? 'Voce non trovata' }
+  if (row.status === 'paid' || row.status === 'cancelled') return { error: 'La voce risulta già chiusa' }
+  const { error } = await supabase.from('payment_schedule').update({
+    postponed_to: newDate, postpone_notes: notes.trim() || null,
+    // un acconto già registrato resta «partial»
+    ...(row.status === 'partial' ? {} : { status: 'postponed' }),
+  }).eq('id', rowId)
+  if (error) return { error: error.message }
+  revalidateRows()
+  return { success: true }
+}

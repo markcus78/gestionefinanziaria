@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
-import { setEstimateOverride, setWindowPct } from './actions'
+import { setEstimateOverride, setWindowPct, payTreasuryRow, postponeTreasuryRow } from './actions'
 import type { BlockResult, CellItem, DecadeResult, RowKey, WindowResult } from '@/lib/decadi'
 
 function formatEur(cents: number) {
@@ -73,6 +73,71 @@ function OverrideEditor({ item, onDone }: { item: CellItem; onDone: () => void }
   )
 }
 
+// «pagata» e «sposta» su una voce vera (Marco, 06/11/2026): senza andarla a cercare nello Scadenzario
+function RowActions({ item }: { item: CellItem }) {
+  const router = useRouter()
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Rome' })
+  const [mode, setMode] = useState<'paga' | 'sposta' | null>(null)
+  const [date, setDate] = useState(today)
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
+  if (!item.rowId) return null
+  const resid = item.residual ?? item.cents
+
+  function open(m: 'paga' | 'sposta') {
+    setError(null)
+    if (mode === m) { setMode(null); return }
+    setMode(m)
+    setDate(m === 'paga' ? today : (item.date && item.date > today ? item.date : today))
+    setAmount((resid / 100).toFixed(2).replace('.', ','))
+    setNote('')
+  }
+  function save() {
+    setError(null)
+    startTransition(async () => {
+      let res: { error?: string } | { success: boolean }
+      if (mode === 'paga') {
+        const n = parseFloat(amount.replace(/\./g, '').replace(',', '.'))
+        if (!Number.isFinite(n) || n <= 0) { setError('Importo non valido'); return }
+        res = await payTreasuryRow(item.rowId!, date, Math.round(n * 100))
+      } else {
+        res = await postponeTreasuryRow(item.rowId!, date, note)
+      }
+      if ('error' in res && res.error) setError(String(res.error))
+      else { setMode(null); router.refresh() }
+    })
+  }
+
+  return (
+    <>
+      <span className="flex gap-2 shrink-0">
+        <button onClick={() => open('paga')} className={`text-xs ${mode === 'paga' ? 'text-emerald-300' : 'text-emerald-500 hover:text-emerald-300'}`}>pagata</button>
+        <button onClick={() => open('sposta')} className={`text-xs ${mode === 'sposta' ? 'text-amber-300' : 'text-amber-500 hover:text-amber-300'}`}>sposta</button>
+      </span>
+      {mode && (
+        <div className="basis-full flex flex-wrap items-center gap-2 mt-1 ml-16 text-xs">
+          <span className="text-zinc-400">{mode === 'paga' ? 'Pagata il' : 'Nuova data'}</span>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="px-2 py-0.5 bg-zinc-800 border border-zinc-600 rounded text-zinc-100" />
+          {mode === 'paga' ? (
+            <>
+              <span className="text-zinc-400">importo €</span>
+              <input value={amount} onChange={e => setAmount(e.target.value)} className="w-24 px-2 py-0.5 text-right bg-zinc-800 border border-zinc-600 rounded text-zinc-100" />
+              <span className="text-zinc-500">resta {formatEur(resid)}{resid !== item.cents && ` · in questa decade ${formatEur(item.cents)}`}</span>
+            </>
+          ) : (
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="nota (facoltativa)" className="w-56 px-2 py-0.5 bg-zinc-800 border border-zinc-600 rounded text-zinc-100 placeholder:text-zinc-500" />
+          )}
+          <button onClick={save} disabled={isPending} className="px-2 py-0.5 rounded bg-indigo-700 text-zinc-100 hover:bg-indigo-600 disabled:opacity-50">{isPending ? '…' : 'Conferma'}</button>
+          <button onClick={() => setMode(null)} className="text-zinc-400 hover:text-zinc-200">Annulla</button>
+          {error && <span className="text-red-400">{error}</span>}
+        </div>
+      )}
+    </>
+  )
+}
+
 function Detail({ d, rowKey, onClose, codeOf }: { d: DecadeResult; rowKey: RowKey; onClose: () => void; codeOf: (id?: string) => string }) {
   const [editing, setEditing] = useState<string | null>(null)
   // Il dettaglio sta sotto una tabella lunga: senza scorrere, il clic sembrava non fare niente
@@ -80,13 +145,13 @@ function Detail({ d, rowKey, onClose, codeOf }: { d: DecadeResult; rowKey: RowKe
   useEffect(() => { ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, [d.decade.key, rowKey])
   const row = ROWS.find(r => r.key === rowKey)!
   // Le bollette di un mese in coda (Forini) si vedono in una riga sola, col numero dei documenti
-  const merged: CellItem[] = []
-  const byGroup = new Map<string, CellItem>()
+  const merged: (CellItem & { parts?: CellItem[] })[] = []
+  const byGroup = new Map<string, CellItem & { parts: CellItem[] }>()
   for (const it of d.rows[rowKey].items) {
     if (!it.group) { merged.push(it); continue }
     const g = byGroup.get(it.group)
-    if (g) { g.cents += it.cents; if (it.doc && !g.doc?.includes(it.doc)) g.doc = `${g.doc}, ${it.doc}` }
-    else { const c = { ...it }; byGroup.set(it.group, c); merged.push(c) }
+    if (g) { g.cents += it.cents; g.parts.push(it) }
+    else { const c = { ...it, rowId: undefined, parts: [it] }; byGroup.set(it.group, c); merged.push(c) }
   }
   const items = merged.sort((a, b) => b.cents - a.cents)
   // Nel Gruppo le voci sono di più società: sigla su ogni voce e totale per società in testa
@@ -123,7 +188,7 @@ function Detail({ d, rowKey, onClose, codeOf }: { d: DecadeResult; rowKey: RowKe
             const id = `${it.rowId ?? it.estimateId}-${i}`
             return (
               <div key={id} className="py-1.5 text-sm">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-x-3">
                   <span className="w-16 shrink-0"><span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-medium text-zinc-400">{codeOf(it.companyId) || '—'}</span></span>
                   <span className={`flex-1 ${it.replaced ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>{it.label}</span>
                   {it.date && <span className="text-xs text-zinc-500">{it.date.slice(8, 10)}/{it.date.slice(5, 7)}/{it.date.slice(0, 4)}</span>}
@@ -132,7 +197,19 @@ function Detail({ d, rowKey, onClose, codeOf }: { d: DecadeResult; rowKey: RowKe
                   {it.estimateId && !it.replaced && (
                     <button onClick={() => setEditing(editing === id ? null : id)} className="text-xs text-indigo-400 hover:text-indigo-300">correggi</button>
                   )}
+                  {!it.replaced && <RowActions item={it} />}
                 </div>
+                {it.parts && (
+                  <div className="ml-16 mt-1 pl-3 border-l border-zinc-700 space-y-0.5">
+                    {it.parts.map((p, k) => (
+                      <div key={`${p.rowId}-${k}`} className="flex flex-wrap items-center gap-x-3 text-xs">
+                        <span className="flex-1 text-zinc-400">n. {p.doc ?? '—'}</span>
+                        <span className="w-24 text-right font-mono text-zinc-400">{formatEur(p.cents)}</span>
+                        <RowActions item={p} />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {editing === id && <OverrideEditor item={it} onDone={() => setEditing(null)} />}
                 {it.covered !== undefined && (
                   <div className="ml-16 mt-1 pl-3 border-l border-zinc-700 space-y-0.5">
