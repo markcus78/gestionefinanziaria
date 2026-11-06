@@ -4,7 +4,7 @@ import { loadPivaInvoiced } from '@/lib/piva-match'
 import type { createClient } from '@/lib/supabase/server'
 import {
   todayRome, buildDecades, computeBlock, sumBlocks, allocateWindow, suggestPct, groupBacklog, activeInstallments,
-  addDays, MURO_COMMITMENT_TYPES, plannedRemaining, paidByKey,
+  addDays, MURO_COMMITMENT_TYPES, plannedRemaining, paidByKey, queueSlots,
   type Transfer, type PlanSupplier, type DecadeTx, type MonthInvoice, type BlockCode, type BlockResult, type Estimate, type OutRow, type WindowResult, type RealIncasso, type PaidMove,
   type BacklogItemRow, type BacklogInstallmentRow, type DecadeIdx, type Installment,
 } from '@/lib/decadi'
@@ -23,8 +23,8 @@ export const BLOCKS: { code: BlockCode; label: string }[] = [
 type OpenRow = {
   id: string; company_id: string; supplier_id: string | null; supplier_name: string | null; due_date: string; postponed_to: string | null
   amount_cents: number; paid_amount_cents: number | null; payment_method: string | null; entry_type: string
-  commitment_type: string | null; document_number: string | null; is_intercompany: boolean | null
-  supplier_registry: { category: string | null; exclude_from_treasury: boolean; treasury_as_staff: boolean; treasury_installments_only: boolean } | null
+  commitment_type: string | null; document_number: string | null; document_date: string | null; is_intercompany: boolean | null
+  supplier_registry: { category: string | null; exclude_from_treasury: boolean; treasury_as_staff: boolean; treasury_installments_only: boolean; treasury_monthly_queue: boolean } | null
 }
 
 export async function loadTreasury(supabase: Supa) {
@@ -71,7 +71,7 @@ export async function loadTreasury(supabase: Supa) {
   const openRows: OpenRow[] = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase.from('payment_schedule')
-      .select('id, company_id, supplier_id, supplier_name, due_date, postponed_to, amount_cents, paid_amount_cents, payment_method, entry_type, commitment_type, document_number, is_intercompany, supplier_registry(category, exclude_from_treasury, treasury_as_staff, treasury_installments_only)')
+      .select('id, company_id, supplier_id, supplier_name, due_date, postponed_to, amount_cents, paid_amount_cents, payment_method, entry_type, commitment_type, document_number, document_date, is_intercompany, supplier_registry(category, exclude_from_treasury, treasury_as_staff, treasury_installments_only, treasury_monthly_queue)')
       .eq('flow_type', 'out')
       .in('status', ['pending', 'scheduled', 'partial', 'postponed'])
       .order('id')
@@ -80,6 +80,15 @@ export async function loadTreasury(supabase: Supa) {
     openRows.push(...((data ?? []) as unknown as OpenRow[]))
     if (!data || data.length < 1000) break
   }
+
+  // Fornitori «in coda» (Forini, regola del 06/11/2026): un mese di bollette per mese, nelle tre decadi
+  const queueRows = openRows.filter(r => r.supplier_registry?.treasury_monthly_queue && r.supplier_id && r.entry_type === 'accounting'
+    && Math.abs(r.amount_cents) - (r.paid_amount_cents ?? 0) > 0)
+  const queueOf = queueSlots(queueRows.map(r => ({
+    id: r.id, companyId: r.company_id, supplierId: r.supplier_id!,
+    docMonth: (r.document_date ?? r.due_date).slice(0, 7), dueDate: r.postponed_to ?? r.due_date,
+  })), today)
+  const queueMonths = new Set(queueRows.map(r => `${r.company_id}|${r.supplier_id}|${queueOf.get(r.id)}`))
 
   // Incassi registrati da Orianna e pagamenti registrati dopo il saldo più vecchio
   const minBalance = ((accounts ?? []) as BankAccount[]).map(a => a.balance_date).filter((d): d is string => !!d).sort()[0]
@@ -132,6 +141,7 @@ export async function loadTreasury(supabase: Supa) {
     for (const r of (data ?? []) as unknown as InvRow[]) {
       const date = r.postponed_to ?? r.due_date
       if (date < firstDay.slice(0, 8) + '01' || date > lastDay) continue
+      if (queueOf.has(r.id)) continue   // bolletta in coda: conta nel suo turno, al posto della stima
       const reg = r.supplier_registry
       invoices.push({
         id: r.id, companyId: r.company_id, supplierId: r.supplier_id, label: r.supplier_name ?? r.document_number ?? '—',
@@ -327,6 +337,9 @@ export async function loadTreasury(supabase: Supa) {
     commitmentType: r.commitment_type,
     documentNumber: r.document_number,
     isIntercompany: r.is_intercompany ?? false,
+    ...(queueOf.has(r.id) ? {
+      queueMonth: queueOf.get(r.id), queueDocMonth: (r.document_date ?? r.due_date).slice(0, 7), amountCents: Math.abs(r.amount_cents),
+    } : {}),
   }))
 
   const allAccounts = (accounts ?? []) as BankAccount[]
@@ -353,7 +366,7 @@ export async function loadTreasury(supabase: Supa) {
       thresholdCents: comps.reduce((s, c) => s + (c.minimum_cash_threshold_cents ?? 0), 0),
       today, backlogBefore,
       rows: rows.filter(r => ids.includes(r.companyId)),
-      estimates, overrides, realStaff, manualRevenue, coffa, installments, realIncassi, paidAfter, invoices, transfers,
+      estimates, overrides, realStaff, manualRevenue, coffa, installments, realIncassi, paidAfter, invoices, transfers, queueMonths,
     }, decades)
   })
   const creditors = groupBacklog(computeAll([]).flatMap(b => b.stockItems), backlogItems, backlogQuotes)

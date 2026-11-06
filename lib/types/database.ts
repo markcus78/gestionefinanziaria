@@ -133,6 +133,7 @@ export type SupplierRegistry = {
   exclude_from_treasury?: boolean
   treasury_as_staff?: boolean
   treasury_installments_only?: boolean
+  treasury_monthly_queue?: boolean
   created_at: string
   updated_at: string
 }

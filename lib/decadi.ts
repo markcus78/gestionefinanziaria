@@ -94,7 +94,43 @@ export type OutRow = {
   commitmentType: string | null
   documentNumber: string | null
   isIntercompany: boolean
+  // Fornitore «in coda» (Forini): il mese in cui si paga questa bolletta e il mese della bolletta
+  queueMonth?: string
+  queueDocMonth?: string
+  amountCents?: number          // importo intero della riga (per togliere prima le quote già pagate)
 }
+
+// Fornitore «in coda» (regola di Marco, 06/11/2026, Forini luce e gas). Le bollette si pagano in
+// ritardo di qualche mese: ogni mese si paga UN mese di bollette, la più vecchia ancora aperta,
+// divisa in parti uguali sulle tre decadi. Le bollette nuove aspettano il loro turno, qualunque
+// scadenza abbiano. Il turno non viene mai prima della scadenza vera: quando il ritardo è
+// recuperato, turno e scadenza coincidono e la coda si spegne da sola.
+export type QueueRow = { id: string; companyId: string; supplierId: string; docMonth: string; dueDate: string }
+
+export function queueSlots(rows: QueueRow[], today: string): Map<string, string> {
+  const groups = new Map<string, Map<string, QueueRow[]>>()
+  for (const r of rows) {
+    const k = `${r.companyId}|${r.supplierId}`
+    if (!groups.has(k)) groups.set(k, new Map())
+    const g = groups.get(k)!
+    if (!g.has(r.docMonth)) g.set(r.docMonth, [])
+    g.get(r.docMonth)!.push(r)
+  }
+  const out = new Map<string, string>()
+  for (const g of groups.values()) {
+    let next = today.slice(0, 7)
+    for (const docMonth of [...g.keys()].sort()) {
+      const rs = g.get(docMonth)!
+      const dueMonth = rs.map(r => r.dueDate.slice(0, 7)).sort()[0]
+      const slot = dueMonth > next ? dueMonth : next
+      for (const r of rs) out.set(r.id, slot)
+      next = nextMonth(slot)
+    }
+  }
+  return out
+}
+
+export const MESI_LUNGHI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
 
 export type Route = 'muro' | 'automatico' | 'pianificato' | 'f24' | 'fattura' | 'stock' | 'escluso'
 
@@ -129,6 +165,8 @@ export function routeOut(
   if (r.residualCents <= 0) return 'escluso'
   if (r.documentNumber?.startsWith('BDG-') || r.commitmentType === 'forecast') return 'escluso'
   if (r.excludeFromTreasury || r.isIntercompany) return 'escluso'
+  // Fornitore in coda: la bolletta si paga per intero nel suo turno, anche se scaduta da tempo
+  if (r.queueMonth) return 'muro'
   // Fornitore trattato come personale: muro, anche se scaduto (lo stipendio arretrato si paga)
   if (r.supplierAsStaff && r.entryType === 'accounting') return 'muro'
   // Fornitore «solo rate»: le rate si pagano per intero (saltarne una fa saltare il piano);
@@ -259,6 +297,7 @@ export type CellItem = {
   month?: string
   idx?: DecadeIdx
   replaced?: boolean
+  group?: string        // voci da mostrare insieme in una riga sola (le bollette di un mese in coda)
   // solo sulle stime che si consumano: le fatture vere già arrivate di questa decade
   covered?: CellItem[]
   monthCoveredCents?: number   // fatture vere di tutto il mese
@@ -301,6 +340,7 @@ export type BlockInput = {
   realIncassi?: RealIncasso[]                 // incassi registrati da Orianna (sezione Incassi)
   paidAfter?: PaidMove[]                      // pagamenti registrati in GF (payment_transactions)
   transfers?: Transfer[]                      // provviste fra società (Appiae → Hangar / Aries, e ritorno)
+  queueMonths?: Set<string>                   // «società|fornitore|mese» con bollette in coda: lì la stima non c'è più
 }
 
 // Provvista infragruppo (Marco, 19/10/2026): Appiae dà cassa ad Hangar o ad Aries (che paga per WT),
@@ -456,6 +496,26 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
       backlogBefore: input.backlogBefore.get(r.companyId) ?? null,
     })
     if (route === 'escluso') continue
+    if (r.queueMonth) {
+      // un terzo per decade del mese del turno; le quote già pagate si tolgono dalla prima
+      const whole = Math.max(r.amountCents ?? r.residualCents, r.residualCents)
+      const quote = consumeByDecade(splitMonthly(whole, [1, 1, 1]), [whole - r.residualCents, 0, 0])
+      const m = Number((r.queueDocMonth ?? r.queueMonth).slice(5, 7))
+      const label = `${r.supplierName ?? '—'} — bollette di ${MESI_LUNGHI[m - 1]}`
+      for (const idx of [1, 2, 3] as DecadeIdx[]) {
+        const cents = quote[idx - 1]
+        if (cents <= 0) continue
+        const from = decadeBounds(r.queueMonth, idx).from
+        const b = bucketOf(decades, from)
+        if (b < 0) { beyondCents += cents; continue }
+        add(rows[b].muro, {
+          label, cents, source: 'scadenzario', date: from < decades[0].from ? decades[0].from : from,
+          rowId: r.id, companyId: r.companyId, supplierId: r.supplierId, method: r.paymentMethod, doc: r.documentNumber,
+          group: `coda|${r.companyId}|${r.supplierId}|${r.queueDocMonth}`,
+        })
+      }
+      continue
+    }
     const e = effectiveDate(r)
     if (route === 'stock') {
       stockCents += r.residualCents; stockCount++
@@ -550,6 +610,18 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
         if (m !== undefined) { monthly = m; source = 'coffa' }
       }
 
+      // Fornitore in coda: nel mese del turno ci sono le sue bollette vere, la stima non serve
+      if (est.supplierId && input.queueMonths?.has(`${est.companyId}|${est.supplierId}|${month}`)) {
+        for (let i = 0; i < decades.length; i++) {
+          const d = decades[i]
+          if (d.month !== month) continue
+          add(rows[i].muro, {
+            label: `${est.label} (al suo posto le bollette in coda)`, cents: 0, source, estimateId: est.id,
+            companyId: est.companyId, month, idx: d.idx, replaced: true,
+          })
+        }
+        continue
+      }
       let quote = splitMonthly(monthly, est.pct)
       const replaced = staffRows.length > 0
       if (consumed?.length) {

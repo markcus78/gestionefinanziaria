@@ -79,7 +79,16 @@ function Detail({ d, rowKey, onClose, codeOf }: { d: DecadeResult; rowKey: RowKe
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => { ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, [d.decade.key, rowKey])
   const row = ROWS.find(r => r.key === rowKey)!
-  const items = [...d.rows[rowKey].items].sort((a, b) => b.cents - a.cents)
+  // Le bollette di un mese in coda (Forini) si vedono in una riga sola, col numero dei documenti
+  const merged: CellItem[] = []
+  const byGroup = new Map<string, CellItem>()
+  for (const it of d.rows[rowKey].items) {
+    if (!it.group) { merged.push(it); continue }
+    const g = byGroup.get(it.group)
+    if (g) { g.cents += it.cents; if (it.doc && !g.doc?.includes(it.doc)) g.doc = `${g.doc}, ${it.doc}` }
+    else { const c = { ...it }; byGroup.set(it.group, c); merged.push(c) }
+  }
+  const items = merged.sort((a, b) => b.cents - a.cents)
   // Nel Gruppo le voci sono di più società: sigla su ogni voce e totale per società in testa
   const byCompany = new Map<string, number>()
   for (const it of items) {

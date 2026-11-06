@@ -2,7 +2,7 @@
 import {
   allocateWindow, suggestPct, supplierKey, groupBacklog, activeInstallments, splitPlan, backlogKey, f24Limit,
   decadeOf, decadeBounds, buildDecades, bucketOf, routeOut, splitMonthly, estimateForMonth, computeBlock, sumBlocks, uncoveredShare, consumeByDecade,
-  planKey, supplierDues, blockSpace, suggestedTransfer, plannedRemaining, lineStatus, offPlan, paidByKey,
+  planKey, supplierDues, queueSlots, blockSpace, suggestedTransfer, plannedRemaining, lineStatus, offPlan, paidByKey,
   type Estimate, type OutRow, type BlockInput, type Transfer, type DecadeTx, type PlanSupplier,
 } from '../lib/decadi.ts'
 import { matchPivaInvoices, personKey, amountFits } from '../lib/piva-match.ts'
@@ -289,6 +289,65 @@ eq('Casali Marco escluso resta escluso', routeOut({ ...base, supplierAsStaff: tr
   eq('dicembre: 30.000 − 5.000 = 25.000', ut.decades.slice(6, 9).reduce((s, d) => s + d.rows.muro.items.find(i => i.estimateId === 'F')!.cents, 0), 2500000)
   eq('altri fornitori di novembre: 10.000 − 4.000 (non Forini, non personale)', ut.decades.slice(3, 6).reduce((s, d) => s + d.rows.nuoveFatture.total, 0), 600000)
   eq('ottobre: nessuna fattura, stima intera', ut.decades[1].rows.nuoveFatture.total + ut.decades[2].rows.nuoveFatture.total, 666600)
+}
+
+// ── Forini in coda (Marco, 06/11/2026): un mese di bollette per mese, in tre parti uguali ──
+{
+  const q = (id: string, docMonth: string, dueDate: string) => ({ id, companyId: 'WT', supplierId: 'forini', docMonth, dueDate })
+  // dati veri del 06/11: agosto in tre scadenze + gas, settembre, ottobre
+  const slots = queueSlots([
+    q('ago-l1', '2026-08', '2026-10-21'), q('ago-l2', '2026-08', '2026-10-30'), q('ago-l3', '2026-08', '2026-11-03'), q('ago-g', '2026-08', '2026-11-03'),
+    q('set-l1', '2026-09', '2026-11-13'), q('set-l2', '2026-09', '2026-11-22'), q('set-g', '2026-09', '2026-11-21'),
+    q('ott-l1', '2026-10', '2026-12-21'), q('ott-l2', '2026-10', '2027-01-01'), q('ott-g', '2026-10', '2026-12-16'),
+  ], '2026-11-06')
+  eq('agosto a novembre', ['ago-l1', 'ago-l2', 'ago-l3', 'ago-g'].map(i => slots.get(i)), ['2026-11', '2026-11', '2026-11', '2026-11'])
+  eq('settembre a dicembre', slots.get('set-l1'), '2026-12')
+  eq('ottobre a gennaio', [slots.get('ott-l1'), slots.get('ott-g')], ['2027-01', '2027-01'])
+  // ritardo recuperato: il turno non viene mai prima della scadenza vera
+  const pari = queueSlots([q('a', '2027-01', '2027-02-05'), q('b', '2027-02', '2027-03-05')], '2027-01-20')
+  eq('in pari: si paga alla scadenza', [pari.get('a'), pari.get('b')], ['2027-02', '2027-03'])
+
+  const dn = buildDecades('2026-11-06', 9)
+  const row = (id: string, cents: number, queueMonth: string, queueDocMonth: string, amountCents = cents): OutRow => ({
+    ...base, id, companyId: 'WT', supplierId: 'forini', supplierName: 'FORINI SPA', supplierCategory: 'utenze',
+    dueDate: '2026-10-21', residualCents: cents, queueMonth, queueDocMonth, amountCents,
+  })
+  const fq = computeBlock(blockInput('WT_ARIES', ['WT'], {
+    today: '2026-11-06', balanceDate: '2026-11-06',
+    estimates: [{ id: 'F', companyId: 'WT', label: 'Utenze: Forini', kind: 'muro', category: 'utenze', monthlyCents: 3300000, pct: [33.34, 33.33, 33.33], replacedBy: [], supplierId: 'forini' }],
+    rows: [
+      row('ago-l1', 306556, '2026-11', '2026-08'), row('ago-l2', 1100000, '2026-11', '2026-08'),
+      row('ago-l3', 671330, '2026-11', '2026-08'), row('ago-g', 449589, '2026-11', '2026-08'),
+      row('set-l1', 1100000, '2026-12', '2026-09'),
+      row('ott-l1', 996735, '2027-01', '2026-10', 996735),
+    ],
+    queueMonths: new Set(['WT|forini|2026-11', 'WT|forini|2026-12', 'WT|forini|2027-01']),
+  }), dn)
+  const muro = (i: number) => fq.decades[i].rows.muro.total
+  eq('le decadi sono Nov D1…Gen D3', [dn[0].label, dn[8].label], ['Nov D1', 'Gen D3'])
+  eq('agosto (25.274,75) diviso nelle tre decadi di novembre', [muro(0), muro(1), muro(2)].reduce((a, b) => a + b, 0), 2527475)
+  near('un terzo per decade', muro(0), 2527475 / 3, 4)
+  near('un terzo anche in Nov D3', muro(2), 2527475 / 3, 4)
+  eq('settembre solo a dicembre', [muro(3), muro(4), muro(5)].reduce((a, b) => a + b, 0), 1100000)
+  eq('ottobre a gennaio', [muro(6), muro(7), muro(8)].reduce((a, b) => a + b, 0), 996735)
+  eq('stima Forini a zero nei mesi in coda', fq.decades.flatMap(d => d.rows.muro.items.filter(i => i.estimateId === 'F').map(i => i.cents)), Array(9).fill(0))
+  eq('stima segnata come sostituita', fq.decades[0].rows.muro.items.find(i => i.estimateId === 'F')!.replaced, true)
+  eq('una riga per mese di bollette', new Set(fq.decades[0].rows.muro.items.filter(i => i.group).map(i => i.group)).size, 1)
+  eq('etichetta col mese della bolletta', fq.decades[0].rows.muro.items.find(i => i.group)!.label, 'FORINI SPA — bollette di agosto')
+
+  // pagata la quota di Nov D1 di una riga: resta da pagare in D2 e D3, D1 vuota
+  const part = computeBlock(blockInput('WT_ARIES', ['WT'], {
+    today: '2026-11-06', balanceDate: '2026-11-06', estimates: [],
+    rows: [row('x', 600000, '2026-11', '2026-08', 900000)],
+  }), dn)
+  eq('quota di D1 già pagata', [0, 1, 2].map(i => part.decades[i].rows.muro.total), [0, 300000, 300000])
+  // turno di un mese già passato per metà (oggi 15/11): la quota di D1 non pagata va nella decade in corso
+  const dm = buildDecades('2026-11-15', 9)
+  const mid = computeBlock(blockInput('WT_ARIES', ['WT'], {
+    today: '2026-11-15', balanceDate: '2026-11-15', estimates: [], rows: [row('y', 900000, '2026-11', '2026-08')],
+  }), dm)
+  eq('D1 passata: la sua quota in Nov D2', [mid.decades[0].rows.muro.total, mid.decades[1].rows.muro.total], [600000, 300000])
+  eq('in coda: nel muro anche se scaduta da mesi', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-08-31', queueMonth: '2026-11' }, ctx), 'muro')
 }
 
 // ── Importi per mese dell'anno (Marco, 23/10) ──

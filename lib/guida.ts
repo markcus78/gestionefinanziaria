@@ -56,6 +56,7 @@ Sono le **fatture vere** registrate dalla contabilità in Spring, con la loro da
 - Nell'import il sistema mostra cosa è **nuovo**, cosa è **cambiato** e cosa è **sparito** dal file. Le righe sparite di solito sono fatture pagate: si spuntano quelle da segnare come pagate e si tolgono le spunte da quelle che non lo sono.
 - Se la contabilità rateizza una fattura o cambia una scadenza, basta il nuovo import: le scadenze si aggiornano da sole.
 - Le fatture delle **utenze** (luce, gas, acqua, telefono) e dei **fornitori trattati come personale** (gli istruttori a partita IVA) vanno nel «muro»: si pagano per intero.
+- **Forini (luce e gas) è «in coda».** Le sue bollette le paghiamo con qualche mese di ritardo: ogni mese se ne paga **un mese**, il più vecchio ancora aperto, diviso in tre parti uguali sulle tre decadi (a novembre 2026 le bollette di agosto). Le bollette nuove aspettano il loro turno, qualunque scadenza abbiano, e nel mese del turno la stima di Forini non conta più. Quando il ritardo è recuperato, il turno coincide con la scadenza vera e la coda si spegne da sola. Pagare una parte prima basta segnarla come pagata: la coda si aggiorna.
 
 ### 2. Gli impegni (menu Impegni e menu Staff)
 
