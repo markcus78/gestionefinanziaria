@@ -140,7 +140,8 @@ function SaldoCalcolato({ result, subBlocks, codeOf }: { result: BlockResult; su
         <span className="text-zinc-400">Saldo banca{result.balanceDate ? ` al ${ddmm(result.balanceDate)}` : ''} <span className="text-zinc-200 font-mono">{formatEur(result.bankBalanceCents)}</span></span>
         <span className="text-emerald-400">+ incassi arrivati dopo <span className="font-mono">{formatEur(inc)}</span></span>
         <span className="text-red-400">− pagamenti registrati dopo <span className="font-mono">{formatEur(pag)}</span></span>
-        <span className="text-zinc-300">= saldo calcolato <span className="font-mono font-semibold">{formatEur(result.balanceCents)}</span></span>
+        {result.creditLineCents > 0 && <span className="text-emerald-400">+ fido <span className="font-mono">{formatEur(result.creditLineCents)}</span></span>}
+        <span className="text-zinc-300">= disponibile <span className="font-mono font-semibold">{formatEur(result.balanceCents)}</span></span>
         <span className="ml-auto text-xs text-zinc-500">
           {regs.length ? `incassi registrati fino al ${regs.map(b => subBlocks.length ? `${ddmm(b.lastRegistered)} (${b.label})` : ddmm(b.lastRegistered)).join(', ')}` : 'nessun incasso registrato'}
           {' '}· {open ? 'chiudi' : 'dettaglio'}
@@ -224,9 +225,9 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
           ))}
         </div>
         <div className="ml-auto text-sm text-zinc-400">
-          Saldo calcolato a oggi:{' '}
+          Disponibile a oggi:{' '}
           <span className={`font-semibold ${result.balanceCents >= 0 ? 'text-zinc-100' : 'text-red-400'}`}>{formatEur(result.balanceCents)}</span>
-          {result.creditLineCents > 0 && <span className="ml-3">Fido: <span className="text-zinc-200">{formatEur(result.creditLineCents)}</span></span>}
+          {result.creditLineCents > 0 && <span className="ml-2 text-zinc-500">(fido {formatEur(result.creditLineCents)} compreso)</span>}
         </div>
       </div>
 
@@ -279,7 +280,7 @@ export default function TreasuryClient({ view, blocks, result, window, notices, 
             <div>
               {sottoFido.length > 0 ? (
                 <>
-                  <span className="text-red-400 font-medium">Sotto zero anche con il fido</span>
+                  <span className="text-red-400 font-medium">Disponibile sotto zero</span>
                   <span className="text-zinc-400 ml-2">dalla decade {sottoFido[0].decade.label} (entro il {sottoFido[0].decade.entro}): {formatEur(sottoFido[0].dispFido)}</span>
                 </>
               ) : (

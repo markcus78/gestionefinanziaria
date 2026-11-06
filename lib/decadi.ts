@@ -480,7 +480,9 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
       futureTransfers.push({ item, out: isFrom })
     }
   }
-  const startCents = input.balanceCents
+  // Il cruscotto parte dal saldo DISPONIBILE (Marco, 06/11/2026): saldo della banca + fido.
+  // I saldi inseriti sono contabili; il fido (Hangar 30.000 €) si può usare, quindi conta da subito.
+  const startCents = input.balanceCents + input.creditLineCents
     + incassiDopoSaldo.reduce((s, i) => s + i.cents, 0)
     - pagatiDopoSaldo.reduce((s, i) => s + i.cents, 0)
   // giorni già contati per società: fino al saldo e fino all'ultimo incasso registrato
@@ -682,7 +684,7 @@ export function computeBlock(input: BlockInput, decades: Decade[]): BlockResult 
     out.push({
       decade: decades[i], inizio, rows: r, uscite, fine,
       fido: input.creditLineCents,
-      dispFido: fine + input.creditLineCents,
+      dispFido: fine,   // il fido è già nel saldo
       soglia: input.thresholdCents,
       fabbisogno: Math.max(0, input.thresholdCents - fine),
     })
@@ -721,7 +723,7 @@ export function sumBlocks(blocks: BlockResult[], groupThresholdCents: number, la
     const fine = inizio + rows.incassi.total - uscite
     decades.push({
       decade: blocks[0].decades[i].decade, inizio, rows, uscite, fine,
-      fido: creditLineCents, dispFido: fine + creditLineCents,
+      fido: creditLineCents, dispFido: fine,
       soglia: groupThresholdCents, fabbisogno: Math.max(0, groupThresholdCents - fine),
     })
     inizio = fine
@@ -851,7 +853,7 @@ export function allocateWindow(
     const fine = base - pagato
     decades.push({
       fromPlan: !!plan, dovuto, suggerita, decisa, applicata, pagato, riporto: dovuto - pagato,
-      inizio, fine, dispFido: fine + d.fido, fabbisogno: Math.max(0, d.soglia - fine),
+      inizio, fine, dispFido: fine, fabbisogno: Math.max(0, d.soglia - fine),
     })
     inizio = fine
   }

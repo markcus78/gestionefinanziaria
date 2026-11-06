@@ -407,18 +407,6 @@ function Grid({ result, window, compact, pctEditable, onPick, picked }: {
                   <td key={d.decade.key} className="px-3 py-1.5 text-right font-mono text-zinc-600">{formatEur(d.fine)}</td>
                 ))}
               </tr>
-              <tr className="border-b border-zinc-800/50">
-                <td className="px-3 py-1.5 text-zinc-400">Disponibilità con il fido</td>
-                {ws.map((w, i) => <td key={ds[i].decade.key} className="px-3 py-1.5 text-right"><Amount cents={w.dispFido} /></td>)}
-              </tr>
-              <tr>
-                <td className="px-3 py-1.5 text-zinc-400">Fabbisogno per restare sopra la soglia ({formatEur(ds[0]?.soglia ?? 0)})</td>
-                {ws.map((w, i) => (
-                  <td key={ds[i].decade.key} className="px-3 py-1.5 text-right font-mono">
-                    {w.fabbisogno > 0 ? <span className="text-red-400">{formatEur(w.fabbisogno)}</span> : <span className="text-zinc-600">—</span>}
-                  </td>
-                ))}
-              </tr>
             </>
           )}
         </tbody>
@@ -474,7 +462,7 @@ export default function CruscottoTab({ result, window, subBlocks, subWindows, pc
               {open[b.code] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               <span className="font-medium">{b.label}</span>
               <span className="ml-auto text-xs text-zinc-500">
-                saldo {formatEur(b.balanceCents)} · fine orizzonte <span className={last.fine < 0 ? 'text-red-400' : ''}>{formatEur(last.fine)}</span>
+                disponibile {formatEur(b.balanceCents)} · fine orizzonte <span className={last.fine < 0 ? 'text-red-400' : ''}>{formatEur(last.fine)}</span>
               </span>
             </button>
             {open[b.code] && <div className="pb-2"><Grid result={b} window={subWindows[bi]} compact /></div>}

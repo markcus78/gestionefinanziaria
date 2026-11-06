@@ -131,7 +131,8 @@ near('Nov D1: mese di Coffa × peso', eur(apCoffa.decades[3].rows.incassi.total)
 // ── Saldi a catena e fabbisogno ──
 const conSaldo = computeBlock(blockInput('HANGAR', ['HG'], { balanceCents: -2964497, creditLineCents: 3000000, thresholdCents: 0 }), dec)
 eq('fine D1 = inizio D2', conSaldo.decades[0].fine, conSaldo.decades[1].inizio)
-eq('disponibilità con fido', conSaldo.decades[0].dispFido, conSaldo.decades[0].fine + 3000000)
+eq('il cruscotto parte dal disponibile (saldo + fido)', conSaldo.decades[0].inizio, -2964497 + 3000000)
+eq('disponibile = fine (il fido è già dentro)', conSaldo.decades[0].dispFido, conSaldo.decades[0].fine)
 
 // ── Fatture sotto/sopra 300 e arretrato ──
 const fatt = computeBlock(blockInput('APPIAE', ['AP'], {

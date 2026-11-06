@@ -286,7 +286,7 @@ Una stima di incasso **non conta per i giorni già coperti** dal saldo della ban
 
 ## Il controllo: il saldo della banca
 
-A ogni decade (il 6, il 16 e il 26, prima della call di pianificazione) si inserisce il **saldo vero** di ogni conto, con la data. La Tesoreria parte dal **saldo calcolato**: saldo della banca + incassi registrati arrivati dopo − pagamenti registrati dopo.
+A ogni decade (il 6, il 16 e il 26, prima della call di pianificazione) si inserisce il **saldo vero** di ogni conto, con la data. La Tesoreria parte dal **disponibile**: saldo della banca + incassi registrati arrivati dopo − pagamenti registrati dopo + **fido** (il fido si può usare, quindi conta da subito: Hangar ha 30.000 € sul BCC Macchinari). Ogni «saldo a inizio decade» del cruscotto è quindi un disponibile.
 
 Se al saldo successivo il saldo vero e quello calcolato non tornano, c'è un movimento non registrato: un incasso dimenticato, un pagamento non segnato, un canale che arriva in giorni diversi, contanti versati. Si cerca e si sistema.
 
