@@ -184,8 +184,10 @@ export function routeOut(
     // fornitore (regola di Marco, 14/10/2026: «elimini la stima e metti la fattura»).
     // Scaduta da poco (fino alla fine del mese dopo, come gli F24): ancora muro; più vecchia:
     // arretrato (regola del 12/10, bolletta Forini del 3/10)
+    // Il «da poco» si conta dalla data che vale (posticipo compreso): una bolletta del 2022 spostata
+    // nella rata di un piano di rientro (Centrica, 06/11/2026) è muro, non arretrato
     if (e >= ctx.today) return 'muro'
-    return ctx.today > f24Limit(r.dueDate) ? 'stock' : 'muro'
+    return ctx.today > f24Limit(e) ? 'stock' : 'muro'
   }
   if (r.supplierCategory === 'tributi_f24') {
     // il futuro è coperto dalla stima F24; lo scaduto segue la regola del ravvedimento

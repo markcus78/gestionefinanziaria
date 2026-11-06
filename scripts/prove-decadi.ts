@@ -50,6 +50,7 @@ eq('RID futuro automatico', routeOut({ ...base, paymentMethod: 'RID', dueDate: '
 eq('RID scaduto si decide', routeOut({ ...base, paymentMethod: 'RID' }, ctx), 'fattura')
 eq('utenza futura nel muro (consuma la stima, regola del 14/10)', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-10-20' }, ctx), 'muro')
 eq('utenza scaduta da oltre un mese in arretrato', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2026-08-31' }, ctx), 'stock')
+eq('utenza del 2022 spostata in una rata recente: muro', routeOut({ ...base, supplierCategory: 'utenze', dueDate: '2022-07-30', postponedTo: '2026-10-01' }, ctx), 'muro')
 eq('budget BDG escluso', routeOut({ ...base, entryType: 'commitment', documentNumber: 'BDG-1', commitmentType: 'salary_item' }, ctx), 'escluso')
 eq('collaboratore nel muro', routeOut({ ...base, entryType: 'commitment', commitmentType: 'collab_item' }, ctx), 'muro')
 eq('impegno manuale pianificato', routeOut({ ...base, entryType: 'commitment', commitmentType: 'manual' }, ctx), 'pianificato')
